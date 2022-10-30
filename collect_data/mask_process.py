@@ -1,9 +1,7 @@
 """Various mask processing."""
+# coding=UTF-8
 import cv2
 import numpy as np
-import math
-import os
-import config as cfg
 from skimage.measure import label
 
 
@@ -82,7 +80,7 @@ def largest_cc(mask,bol2img):
 
 def remove_scattered_pix(mask,th,visual):
     #去除只有th个像素的连通域而不影响其他内容
-    labels = label(mask,connectivity=None)
+    labels = label(mask,connectivity=1)
     remove_index = np.where(np.bincount(labels.flat)[1:] <= th)
     for item in remove_index[0]:
         mask = np.where(labels == item +1, 0, mask)
@@ -186,7 +184,7 @@ def black_hat(mask,kernel_size,iterations):
     blackhat_mask = cv2.morphologyEx(mask, cv2.MORPH_BLACKHAT, kernel, iterations=iterations)
     return blackhat_mask
 
-def get_half_centroid_mask(mask, left_half, tole):
+def get_half_centroid_mask(mask, left_half, tole, visual = False):
     '''
     根绝left_half的真假情况,去掉中心点在右半边或左半边的连通域,
     :param mask:二值化mask
@@ -194,14 +192,20 @@ def get_half_centroid_mask(mask, left_half, tole):
     :param tole:对额外偏移的容忍
     :return:
     '''
-    w = mask.shape[1] #图片的宽
+    if (mask == 0).all():
+        return mask
+    new_mask = mask.copy()
+    w = new_mask.shape[1] #图片的宽
     w_half = int(w // 2)
-    contours = get_exter_contours(mask, 'none')
+    contours = get_exter_contours(new_mask, 'none')
     for cnt in contours:
         cx,cy = get_centroid(cnt)
         if (left_half and cx > w_half + tole) or (not left_half and cx < w_half - tole):
-            cv2.drawContours(mask, [cnt], 0, 0, -1)
-    return mask
+            cv2.drawContours(new_mask, [cnt], 0, 0, -1)
+    new_mask = remove_small_area(new_mask, 50, False,"")
+    if visual:
+        cv2.imshow("half after remove small", np.uint8(new_mask))
+    return np.uint8(new_mask)
 
 def get_half_mask(mask,left_half, tole):
     h = mask.shape[0]
@@ -371,7 +375,7 @@ def draw_lines(lines, mask, color, width, visual, message):
 
 
 def get_each_mask(mask):
-    labels = label(mask)
+    labels = label(mask,connectivity=1)
     num = np.max(labels) #背景+白色连通域个数
     each_mask_list = []
     for i in range(1, num+1):
@@ -385,7 +389,7 @@ def get_max_inner_circle(mask, visual):
     # get max inner circle of external contour
     
     mask = mask.astype('uint8')
-    mask_coord = mask2coord(True)
+    mask_coord = mask2coord(mask, True)
     contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
 
     # Calcul ate the distances to the external contour  
@@ -421,3 +425,39 @@ def get_max_inner_circle(mask, visual):
         # cv2.waitKey()
     # return cicle xy coord and fp32 radius 
     return max_idx, max_val
+
+
+def apply_mask_to_img(mask,imgs,color2gray,visual, mask_info):
+    '''
+    用mask把img_list中的图像分割出来，其中mask=0的位置全涂黑，否则使用原图像素值
+    :param mask: 二维的二值mask
+    :param imgs: 所有图片,可以是单张图片或图片列表
+    :param color2gray: 是否把彩色图像转为灰度图像
+    :param visual: 是否可视结果
+    :param mask_info:mask相关信息，用以生成不同的mask窗口
+    :return: 分割后的图像或图像列表
+    '''
+    if isinstance(imgs, list):
+        apply_list = []
+        for i,img in enumerate(imgs):#enumerate中对list的处理是隔离的，不会影响原来的list
+            # print(i)
+            if is_grayscale(img):
+                img = np.where(mask,img,0)
+            else:
+                img = np.where(np.repeat(mask[:, :, np.newaxis], 3, axis=-1), img, 0)
+                if color2gray:
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            apply_list.append(img)
+            if visual:
+                cv2.imshow('apply {} mask to img: img {} in img list'.format(mask_info, i), img)
+        return apply_list
+    else:
+        if is_grayscale(imgs):
+            img = np.where(mask,imgs,0)
+        else:
+            img = np.where(np.repeat(mask[:, :, np.newaxis], 3, axis=-1), imgs, 0)
+            if color2gray:
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if visual:
+            cv2.imshow('apply {} mask to img'.format(mask_info), img)
+        return img

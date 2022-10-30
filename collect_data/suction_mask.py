@@ -1,5 +1,5 @@
 """Get mask when collect."""
-from pickle import TRUE
+# coding=UTF-8
 import cv2
 import numpy as np
 import logging
@@ -7,23 +7,23 @@ import sys
 import os
 # sys.path.append(os.path.dirname(os.getcwd()))
 sys.path.append(os.getcwd())
-from mask_process import remove_big_area,remove_small_area,erode,get_avaliable_part,get_half_centroid_mask,remove_inner_black
-from collect_data import grabcut_get_mask
+from mask_process import remove_big_area,remove_small_area,erode,get_avaliable_part,get_half_centroid_mask,remove_inner_black,apply_mask_to_img,remove_scattered_pix,get_each_mask,get_max_inner_circle
+from image_process import grabcut_get_mask,convert_image
 logger = logging.getLogger(__name__)
 
 
 def kmeans_image(image,k):
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0) 
-    height, width  = image.shape
+    height, width  = image.shape[:2]
     channel = 1 if image.ndim == 2 or (image.ndim == 3 and image.shape[2] == 1) else 3
     # kmeans needs fp32 format image
     image_f32 = image.astype("float32").reshape((height * width,channel))
     ret, label, center=cv2.kmeans(image_f32, k, None, criteria,10, cv2.KMEANS_RANDOM_CENTERS)
-    label = label.reshape(image.shape)
+    label = label.reshape(image.shape[:2])
     return label
 
 
-def seg_depth(image,inner_obj_max_depth, visualize):
+def seg_depth(image, visual):
     # preprocess for depth
     height, width = image.shape
 
@@ -67,42 +67,41 @@ def seg_depth(image,inner_obj_max_depth, visualize):
     # if there is no obj out of kit, obj's label is different from background(bg) and kit's label
     k = 3
     label_list = [i for i in range(k)]
+
     classified_image = kmeans_image(image, k)
     bg_label = classified_image[-1,-1]
     label_list.remove(bg_label)
 
-    _, max_val, _, max_idx = cv2.minMaxLoc(image)
+    _, _, _, max_idx = cv2.minMaxLoc(image)
 
-    inner_obj_label = classified_image[max_idx[1], max_idx[0]]
-    inner_obj_mask = np.where(classified_image == inner_obj_label, 255, 0)
-    inner_obj_mask = get_half_centroid_mask(inner_obj_mask, False, 0)
+    obj_label = classified_image[max_idx[1], max_idx[0]]
+    obj_mask = np.where(classified_image == obj_label, 255, 0)
+    inner_obj_mask = get_half_centroid_mask(obj_mask, False, 0)
 
     if image[:,width//2:].max() < image[:,:width//2].max(): 
-        # consider as kit
-        if visualize:
+        # consider as kit witout any obj in it
+        if visual:
             cv2.imshow("classified_image * 30", classified_image.astype("uint8") * 30)
             cv2.imshow("seg_mask ", np.zeros((height,width),dtype = np.uint8))
             cv2.waitKey() 
-        return np.zeros((height,width),dtype = np.uint8), 0
+       
+        return np.zeros((height,width),dtype = np.uint8)
     
-    # filter error kit mask
-
-    
-    # consider there are only bg and obj out of kit in left of image
-
     seg_mask = inner_obj_mask.astype('uint8')    
     seg_mask = remove_small_area(seg_mask,500, False,"depth mask")
-    if visualize:
+    if visual:
         cv2.imshow("classified_image * 30", classified_image.astype("uint8") * 30)
         cv2.imshow("seg_mask ", seg_mask)
         cv2.waitKey() 
-    return seg_mask, inner_obj_max_depth or max_val
+    return seg_mask
         
 def seg_color_by_grabcut(color_image, pre_mask,visual):
     
     grabcut_mask = grabcut_get_mask(color_image, pre_mask, "hsv", False)
     grabcut_mask = remove_small_area(grabcut_mask,500,False,"")
     grabcut_mask = remove_inner_black(grabcut_mask, False)
+    # if all kit is treat as obj, remove it
+    grabcut_mask = remove_big_area(grabcut_mask, 10000, False, "")
     if visual:
         cv2.imshow("grabcut_after_process", grabcut_mask)
     cv2.waitKey() 
@@ -121,20 +120,26 @@ def seg_depth_by_time(init_image, final_image):
     cv2.waitKey()
     return diff_mask
 
-def seg_color_by_kmeans(color_image,k):
+def seg_color_by_kmeans(color_image,k, color_space = "bgr", channel = [0,1,2], visual = False):
     height, width = color_image.shape[:2]
-    hsv_color = cv2.cvtColor(color_image,cv2.COLOR_BGR2HSV)
-    # hue_fp32 = hsv_color[:,:,0].astype("float32").reshape((height * width))
-    hue_fp32 = hsv_color.astype("float32").reshape((height * width, 3))
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0) 
-    ret, label, center=cv2.kmeans(hue_fp32, k, None, criteria,10, cv2.KMEANS_RANDOM_CENTERS)
-    label = label.reshape((height, width))
-    cv2.imshow("hue_kmeans_label", label.astype("uint8")*(256 // k))
-    cv2.imshow("color",color_image)
-    cv2.waitKey()
-    return label
+    converted_image = convert_image(color_image, color_space)
+    if len(channel) ==1:
+        image = converted_image[:,:,channel[0]]
+    elif len(channel) ==3:
+        image = converted_image
+    else:
+        image = converted_image[:,:,channel[0]]
+        for c in channel[1:]:
+            image = np.concatenate([image, converted_image[channel[c]]], axis = -1)
+    classified_color_image = kmeans_image(image, k)
+    if visual:
+        cv2.imshow("image", np.uint8(image))
+        cv2.imshow("classified_color_image", classified_color_image.astype("uint8")*20)
+        cv2.imshow("color",color_image)
+        cv2.waitKey()
+    return classified_color_image
 
-def compose_depth_color(depth_image, color_image):
+def compose_depth_color(depth_image, color_image, visual):
     depth_seg_mask = seg_depth(depth_image)
     # get inner obj mask
     seg_result = seg_color_by_grabcut(color_image, depth_seg_mask,depth_image)
@@ -143,16 +148,15 @@ def compose_depth_color(depth_image, color_image):
     color_label = seg_color_by_kmeans(color_image, k)
     for i in range(k):
         one_color_mask = np.where(color_label==i, 255, 0).astype("uint8")
-        one_color_mask = get_half_centroid_mask(one_color_mask, False, 0)
         one_color_mask = get_avaliable_part(one_color_mask, seg_result, False)
         one_color_mask = remove_inner_black(one_color_mask, False)
         one_color_mask = remove_small_area(one_color_mask, 500, False, "")
-        one_color_mask = remove_big_area(one_color_mask, 10000, False, "")
         
         if (one_color_mask == 0).all():
             continue
-        cv2.imshow(f"one_color_classify_{i}",one_color_mask)
-        cv2.waitKey()
+        if visual:
+            cv2.imshow(f"one_color_classify_{i}",one_color_mask)
+            cv2.waitKey()
 
 
 
@@ -163,27 +167,42 @@ if __name__ == "__main__":
     step_num = len(file_name_list) // 3
 
     compare_depth  =  cv2.imread(os.path.join("20221029test_compare",data_type, f"depth0.png"), cv2.IMREAD_GRAYSCALE)
-    max_depth = 0
-    for i in range(step_num):
-        print(i, "max_depth", max_depth)
+    for i in range(0, 2):
+        print(i)
         depth_image = cv2.imread(os.path.join(data_root,data_type, f"depth{i}.png"), cv2.IMREAD_GRAYSCALE)
         color_image = cv2.imread(os.path.join(data_root,data_type, f"color{i}.png"))
         diff_depth = cv2.subtract(compare_depth, depth_image)
         scale = 255 / depth_image.max()
+        cv2.imshow("color",color_image)
         cv2.imshow("diff", np.int8(diff_depth * scale))
         # cv2.waitKey()
         # # use kmeans to seg depth
-        depth_mask, max_depth= seg_depth(diff_depth, max_depth, True)
+        depth_mask = seg_depth(diff_depth,False)
         if (depth_mask == 0).all():
             # no obj in kit
             continue
         seg_result = seg_color_by_grabcut(color_image, depth_mask, True)
-    # # seg_by_time(color_image, color_image_final)
-    # # seg_depth_by_time(depth_image, depth_image_final)
+        if (seg_result == 0).all(): 
+            # if grabcut is invalid
+            seg_result = depth_mask
+        
+        # get each obj in kit
+        k = 7
+        color_obj = apply_mask_to_img(seg_result, color_image, False, False,"")
+        color_label = seg_color_by_kmeans(color_obj, k, "bgr", [0,1,2], visual=True)
+        color_label= np.where(seg_result, color_label, -1) 
+        for i in range(k):
+            one_color_mask = np.where(color_label==i, 255, 0).astype("uint8")
+            one_color_mask = remove_scattered_pix(one_color_mask,3,False)
+            one_color_mask = remove_inner_black(one_color_mask, False)
+            one_color_mask = remove_small_area(one_color_mask, 500, False, "")
+            if (one_color_mask == 0).all():
+                continue
+            # get eah connected_domain
+            each_mask_list = get_each_mask(one_color_mask)
+            for each_mask in each_mask_list:
+                cv2.imshow("ecah mask",np.uint8(each_mask))
+                xy_coord, radius = get_max_inner_circle(each_mask, True)
+                cv2.imshow("one_color_classify",one_color_mask)
+                cv2.waitKey()
 
-    # multi_instance = MultiMask(seg_result,color_image)
-    # multi_instance.get_max_inner_circle()
-
-        # compose_depth_color(depth_image,color_image)
-        # get_kit_edge(color_image, True)
-        # cv2.waitKey()

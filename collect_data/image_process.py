@@ -1,4 +1,5 @@
 """Process for 3-channel image."""
+# coding=UTF-8
 import cv2
 import numpy as np
 from mask_process import *
@@ -237,13 +238,10 @@ def grabcut_get_mask(image, fg_mask, color_space_name, visual):
     rmin, rmax, cmin, cmax = mask2bbox(fg_mask)
     r_tole = 20
     c_tole = 20
-    # TODO:bix bug at 17
-    if (rmax - rmin) < 4 * r_tole:
-        rmin -= r_tole
-        rmax += r_tole
-    if (cmax - cmin) < 4 * c_tole:
-        cmin -= c_tole
-        cmax += c_tole
+    rmin -= r_tole if rmin > r_tole else 0
+    rmax += r_tole if rmax < h - r_tole else h
+    cmin -= c_tole  if cmin > c_tole else 0
+    cmax += c_tole if cmax < w - c_tole else w
     cv2.grabCut(color_space_image[rmin: rmax, cmin:cmax,:], mask[rmin: rmax, cmin:cmax], [0,0,0,0], bgdModel, fgdModel, 3, cv2.GC_INIT_WITH_MASK)#使用mask初始化
     # cv2.grabCut(color_space_image, mask, [0,0,0,0], bgdModel, fgdModel, 1, cv2.GC_INIT_WITH_MASK)#使用mask初始化
     grabcut_mask = np.where((mask == 2) | (mask == 0), 0, 255).astype('uint8') #把2对应的“可能的背景”和0对应的“背景”部分设为0,其他部分为255
