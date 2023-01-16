@@ -2,7 +2,7 @@
 # coding=UTF-8
 import cv2
 import numpy as np
-from collect_data.mask_process import *
+from tools.image_mask.mask_process import *
 import os
 
 def get_edge_sobel(image, color_name, channel, k = 3, visual = False):

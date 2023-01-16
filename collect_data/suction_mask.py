@@ -8,8 +8,8 @@ import os
 import random
 # sys.path.append(os.path.dirname(os.getcwd()))
 sys.path.append(os.getcwd())
-from mask_process import remove_big_area,remove_small_area,erode,get_avaliable_part,get_half_centroid_mask,remove_inner_black,apply_mask_to_img,remove_scattered_pix,get_each_mask,get_max_inner_circle
-from image_process import grabcut_get_mask,convert_image,get_exter_contours
+from tools.image_mask.mask_process import remove_big_area,remove_small_area,erode,get_avaliable_part,get_half_centroid_mask,remove_inner_black,apply_mask_to_img,remove_scattered_pix,get_each_mask,get_max_inner_circle
+from tools.image_mask.image_process import grabcut_get_mask,convert_image,get_exter_contours
 logger = logging.getLogger(__name__)
 
 

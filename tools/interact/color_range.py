@@ -3,7 +3,7 @@
 
 import numpy as np
 import cv2
-from mask_process import get_centroid
+from tools.image_mask.mask_process import get_centroid
 
 def get_range_from_list(range_list):
     range_array = np.array(range_list, dtype=int)

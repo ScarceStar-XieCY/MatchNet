@@ -5,9 +5,9 @@ import os
 import numpy as np
 import sys
 sys.path.append(os.getcwd())
-from mask_process import open_morph,get_half_centroid_mask
+from tools.image_mask.mask_process import open_morph,get_half_centroid_mask
 from tools.matrix import gen_rot_mtx_anticlockwise, rot_around_point
-from collect_data.mask_process import mask2coord, coord2mask, get_mask_center
+from tools.image_mask.mask_process import mask2coord, coord2mask, get_mask_center
 import logging
 
 logger = logging.getLogger(__file__)
