@@ -5,10 +5,11 @@ import numpy as np
 import logging
 import sys
 import os
+import random
 # sys.path.append(os.path.dirname(os.getcwd()))
 sys.path.append(os.getcwd())
 from mask_process import remove_big_area,remove_small_area,erode,get_avaliable_part,get_half_centroid_mask,remove_inner_black,apply_mask_to_img,remove_scattered_pix,get_each_mask,get_max_inner_circle
-from image_process import grabcut_get_mask,convert_image
+from image_process import grabcut_get_mask,convert_image,get_exter_contours
 logger = logging.getLogger(__name__)
 
 
@@ -120,6 +121,7 @@ def seg_depth_by_time(init_image, final_image):
     cv2.waitKey()
     return diff_mask
 
+
 def seg_color_by_kmeans(color_image,k, color_space = "bgr", channel = [0,1,2], visual = False):
     height, width = color_image.shape[:2]
     converted_image = convert_image(color_image, color_space)
@@ -133,9 +135,9 @@ def seg_color_by_kmeans(color_image,k, color_space = "bgr", channel = [0,1,2], v
             image = np.concatenate([image, converted_image[channel[c]]], axis = -1)
     classified_color_image = kmeans_image(image, k)
     if visual:
-        cv2.imshow("image", np.uint8(image))
+        # cv2.imshow("image", np.uint8(image))
         cv2.imshow("classified_color_image", classified_color_image.astype("uint8")*20)
-        cv2.imshow("color",color_image)
+        # cv2.imshow("color",color_image)
         cv2.waitKey()
     return classified_color_image
 
@@ -158,51 +160,106 @@ def compose_depth_color(depth_image, color_image, visual):
             cv2.imshow(f"one_color_classify_{i}",one_color_mask)
             cv2.waitKey()
 
+def get_obj_mask_in_kit(compare_depth,depth_image,color_image):
+    diff_depth = cv2.subtract(compare_depth, depth_image)
+    scale = 255 / depth_image.max()
+    cv2.imshow("color",color_image)
+    # cv2.imshow("diff", np.int8(diff_depth * scale))
+    # cv2.waitKey()
+    # # use kmeans to seg depth
+    depth_mask = seg_depth(diff_depth,False)
+    if (depth_mask == 0).all():
+        # no obj in kit
+        return np.zeros_like(depth_image, dtype=np.int)
+    seg_result = seg_color_by_grabcut(color_image, depth_mask, visual = False)
+    if (seg_result == 0).all(): 
+        # if grabcut is invalid
+        seg_result = depth_mask
+    return seg_result
 
 
-if __name__ == "__main__": 
-    data_root = '20221029test'
+def get_each_color_mask(color_label):
+    one_color_mask_list = []
+    for i in range(color_label.max()):
+        one_color_mask = np.where(color_label==i, 255, 0).astype("uint8")
+        one_color_mask = remove_scattered_pix(one_color_mask,3,False)
+        one_color_mask = remove_inner_black(one_color_mask, False)
+        one_color_mask = remove_small_area(one_color_mask, 500, False, "")
+        one_color_mask_list.append(one_color_mask)
+        if (one_color_mask == 0).all():
+            continue
+    return one_color_mask_list
+
+
+def get_each_suction_coord(color_label,visual:bool):
+    one_color_mask_list = get_each_color_mask(color_label)
+    obj_coord = []
+    for one_color_mask in one_color_mask_list:
+        # get each connected_domain in one color
+        each_mask_list = get_each_mask(one_color_mask)
+        for each_mask in each_mask_list:
+            # cv2.imshow("each mask",np.uint8(each_mask))
+            # cv2.waitKey()
+            uv_coord, radius = get_max_inner_circle(each_mask, True)
+            if uv_coord is not None:
+                obj_coord.append((uv_coord, radius))
+            # cv2.imshow("one_color_classify",one_color_mask)
+    if visual:
+        mask = np.where(color_label >= 0, 255, 0).astype("uint8")
+        result = cv2.cvtColor(mask,cv2.COLOR_GRAY2BGR)
+        for (uv_coord, radius) in obj_coord:
+            cv2.circle(result,uv_coord[::-1], np.int(radius),(0,255,0), 2, cv2.LINE_8, 0)
+            cv2.imshow('result', result)
+            pass    
+    return obj_coord
+
+def get_obj_coord_as_poss(compare_depth,depth_image, color_image, obj_num):
+    seg_result = get_obj_mask_in_kit(compare_depth,depth_image, color_image)
+    # get all obj in kit
+    color_obj = apply_mask_to_img(seg_result, color_image, False, False,"")
+    # segment each color, 2 means background and eye
+    color_label = seg_color_by_kmeans(color_obj, obj_num + 2, "bgr", [0,1,2], visual=False)
+    color_label= np.where(seg_result, color_label, -1) 
+    obj_coord = get_each_suction_coord(color_label, visual=False)
+    return obj_coord
+
+def test_inner_circle():
+    data_root = '20230108'
     data_type = "train"
     file_name_list = os.listdir(os.path.join(data_root,data_type))
     step_num = len(file_name_list) // 3
-
-    compare_depth  =  cv2.imread(os.path.join("20221029test_compare",data_type, f"depth0.png"), cv2.IMREAD_GRAYSCALE)
-    for i in range(0, 2):
-        print(i)
-        depth_image = cv2.imread(os.path.join(data_root,data_type, f"depth{i}.png"), cv2.IMREAD_GRAYSCALE)
-        color_image = cv2.imread(os.path.join(data_root,data_type, f"color{i}.png"))
-        diff_depth = cv2.subtract(compare_depth, depth_image)
-        scale = 255 / depth_image.max()
-        cv2.imshow("color",color_image)
-        cv2.imshow("diff", np.int8(diff_depth * scale))
-        # cv2.waitKey()
-        # # use kmeans to seg depth
-        depth_mask = seg_depth(diff_depth,False)
-        if (depth_mask == 0).all():
-            # no obj in kit
-            continue
-        seg_result = seg_color_by_grabcut(color_image, depth_mask, True)
-        if (seg_result == 0).all(): 
-            # if grabcut is invalid
-            seg_result = depth_mask
+    compare_depth  =  cv2.imread(os.path.join("20230108",data_type, "bee",f"depth1.png"), cv2.IMREAD_GRAYSCALE)
+    obj_num_init= 7
+    kit_count = 0
+    while True:
+        # for one kit
+        # suction stage
+        # obj_num= obj_num_init - (i % obj_num_init)
+        obj_num = obj_num_init
+        obj_coord = []
+        while obj_num > 0:
         
-        # get each obj in kit
-        k = 7
-        color_obj = apply_mask_to_img(seg_result, color_image, False, False,"")
-        color_label = seg_color_by_kmeans(color_obj, k, "bgr", [0,1,2], visual=True)
-        color_label= np.where(seg_result, color_label, -1) 
-        for i in range(k):
-            one_color_mask = np.where(color_label==i, 255, 0).astype("uint8")
-            one_color_mask = remove_scattered_pix(one_color_mask,3,False)
-            one_color_mask = remove_inner_black(one_color_mask, False)
-            one_color_mask = remove_small_area(one_color_mask, 500, False, "")
-            if (one_color_mask == 0).all():
-                continue
-            # get eah connected_domain
-            each_mask_list = get_each_mask(one_color_mask)
-            for each_mask in each_mask_list:
-                cv2.imshow("ecah mask",np.uint8(each_mask))
-                xy_coord, radius = get_max_inner_circle(each_mask, True)
-                cv2.imshow("one_color_classify",one_color_mask)
-                cv2.waitKey()
+            # get image 
+            i = (obj_num_init - obj_num) + obj_num_init * kit_count + 2
+            print(i)
+            depth_image = cv2.imread(os.path.join(data_root,data_type, "bee", f"depth{i}.png"), cv2.IMREAD_GRAYSCALE)
+            color_image = cv2.imread(os.path.join(data_root,data_type, "bee", f"color{i}.png"))
+            obj_coord = get_obj_coord_as_poss(compare_depth,depth_image, color_image, obj_num)
+            while len(obj_coord) != 0:
+                random_idx = random.randrange(0,len(obj_coord))
+                selected_point = obj_coord.pop(random_idx)
+                print("len(obj_coord) = ",len(obj_coord))
+                # fake move
+                obj_num -= 1
+                print("obj_num = ",obj_num)
+            cv2.waitKey()
+         
+        # placement stage
 
+        kit_count += 1
+
+
+
+
+if __name__ == "__main__": 
+    test_inner_circle()

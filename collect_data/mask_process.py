@@ -3,6 +3,10 @@
 import cv2
 import numpy as np
 from skimage.measure import label
+import logging
+
+logger = logging.getLogger(__file__)
+
 
 
 def remove_small_area(mask, area_th,visual, message):
@@ -21,6 +25,7 @@ def remove_small_area(mask, area_th,visual, message):
     if visual:
         cv2.imshow('after remove small area_{}'.format(message), mask)
     return mask
+
 
 def remove_big_area(mask, area_th,visual, message):
     '''
@@ -50,7 +55,7 @@ def remove_inner_white(mask, visual, message):
 
 def remove_slim(mask, ratio = 10):
     '''
-    去掉细长的非0部分,原理:越细长，连通域的面积/周长比就越小
+    去掉细长的非0部分,原理:越细长,连通域的面积/周长比就越小
     :param mask:待处理的mask
     :param ratio: ratio=面积/周长
     :return:处理后的mask
@@ -65,18 +70,26 @@ def remove_slim(mask, ratio = 10):
             cv2.drawContours(mask, [cnt], 0, 0, -1)
     return mask
 
+def get_exter_contours(mask, method = 'none'):
+    if method == 'simple' or method == 'SIMPLE':
+        contours, _ = cv2.findContours(mask.astype('uint8'), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    else:# if method == 'none' or method == 'NONE'
+        contours, _ = cv2.findContours(mask.astype('uint8'), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    return contours
+
 def largest_cc(mask,bol2img):
     '''
-    选出除0像素之外，最大的连通域
+    选出除0像素之外,最大的连通域
     :param mask:一张图
     :param bol2mask
-    :return: bool类型的矩阵，true部分对应的就是最大连通域
+    :return: bool类型的矩阵,true部分对应的就是最大连通域
     '''
     labels = label(mask)
     largest = labels == np.argmax(np.bincount(labels.flat)[1:]) + 1
     if bol2img:
         largest = np.array(largest).astype('uint8')*255
     return largest
+
 
 def remove_scattered_pix(mask,th,visual):
     #去除只有th个像素的连通域而不影响其他内容
@@ -100,17 +113,17 @@ def mask2bbox(mask):
 
 def remove_surrounding_white(mask,visual):
     '''
-    在mask中，去掉贴着图像边缘的白色部分（通常是背景）
+    在mask中,去掉贴着图像边缘的白色部分（通常是背景）
     :param mask:处理前的mask
     :param visual: 是否可视化
-    :return: mask：处理后的mask
+    :return: mask:处理后的mask
     '''
     h,w = mask.shape
     labels = label(mask)
     if visual:
         cv2.imshow('labels going to remove_surrounding_white',(labels*40).astype('uint8'))
     num = np.max(labels)
-    if num > 1:#如果只有一个连通域，不需要处理
+    if num > 1:#如果只有一个连通域,不需要处理
         for i in range(num):
             domain = np.where(labels==i+1,1,0)
             if visual:
@@ -129,7 +142,7 @@ def remove_inner_black(mask,visual):
     在mask中去掉白色部分中间的黑色
     :param mask:
     :param visual: 可视化
-    :return: mask：处理后的mask
+    :return: mask:处理后的mask
     '''
     h, w = mask.shape
     mask = 255 - mask
@@ -166,14 +179,14 @@ def dilate(mask,kernel_size,iterations):
 
 
 def open_morph(mask,kernel_size,iterations):
-    #开运算：先腐蚀后膨胀
+    #开运算:先腐蚀后膨胀
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size,kernel_size))
     open_mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=iterations)
     return open_mask
 
 
 def close_morph(mask,kernel_size,iterations):
-    #闭运算：先膨胀后腐蚀
+    #闭运算:先膨胀后腐蚀
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size,kernel_size))
     close_mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=iterations)
     return close_mask
@@ -184,7 +197,7 @@ def black_hat(mask,kernel_size,iterations):
     blackhat_mask = cv2.morphologyEx(mask, cv2.MORPH_BLACKHAT, kernel, iterations=iterations)
     return blackhat_mask
 
-def get_half_centroid_mask(mask, left_half, tole, visual = False):
+def get_half_centroid_mask(mask:np.ndarray, left_half:bool, tole:int, visual:bool = False):
     '''
     根绝left_half的真假情况,去掉中心点在右半边或左半边的连通域,
     :param mask:二值化mask
@@ -218,7 +231,7 @@ def get_half_mask(mask,left_half, tole):
     return mask
 
 
-def mask2coord(mask,need_xy):
+def mask2coord(mask,need_xy:bool):
     coord = np.column_stack(np.where(mask))
     if need_xy:
         coord = coord[:,::-1]
@@ -227,10 +240,20 @@ def mask2coord(mask,need_xy):
 
 def coord2mask(coord,h,w,visual):
     mask_layer = np.zeros((h,w))
-    mask_layer[coord[:, 0],coord[:, 1]] = 1
+    mask_layer[coord[:, 0],coord[:, 1]] = 255
     if visual:
         cv2.imshow('mask from coord', mask_layer)
     return mask_layer
+
+def get_mask_center(mask):
+    """Get center of one mask,(u,v). Mask shoud have only one connected-domain."""
+    contours = get_exter_contours(mask, 'simple')
+    if len(contours) > 0:
+        logger.warning("more than one contous exsist.")
+    cnt = contours[0]
+    mask_center = get_centroid(cnt)
+    mask_center = mask_center[::-1]
+    return mask_center
 
 
 def is_grayscale(img):
@@ -271,16 +294,18 @@ def get_all_contours(mask, method = 'none'):
         contours, hierarch = cv2.findContours(mask.astype('uint8'), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
     return contours
 
+
 def get_ccomp_contours(mask, method = 'none', need_parent = True):
     if method == 'simple' or method == 'SIMPLE':
         contours, hierarch = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     else:# if method == 'none' or method == 'NONE'
         contours, hierarch = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
     if need_parent:
-        # 要找到第一个[3]==-1（没有父亲轮廓 = 自己就是父级）的索引，然后根据[0]得到所有相同层级的轮廓
+        # 要找到第一个[3]==-1（没有父亲轮廓 = 自己就是父级）的索引,然后根据[0]得到所有相同层级的轮廓
         index = np.array(np.where(hierarch[0,:,3] == -1)[0])
         contours = np.array(contours,dtype=object)[index]
     return contours
+
 
 def get_tree_contours(mask, method = 'none', need_hierach_level = -1):
     if method == 'simple' or method == 'SIMPLE':
@@ -288,15 +313,15 @@ def get_tree_contours(mask, method = 'none', need_hierach_level = -1):
     else:# if method == 'none' or method == 'NONE'
         contours, hierarch = cv2.findContours(mask.astype('uint8'), cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
     if need_hierach_level != -1:
-        # 要找到第一个[3]==n（没有父亲轮廓 = 自己就是父级）的索引，然后根据[0]得到所有相同层级的轮廓
+        # 要找到第一个[3]==n（没有父亲轮廓 = 自己就是父级）的索引,然后根据[0]得到所有相同层级的轮廓
         if need_hierach_level == 0: #要得到最外层的轮廓
             index = np.array(np.where(hierarch[0, :, 3] == -1)[0])
             contours = np.array(contours)[index]
-        elif need_hierach_level == -2: #要得到最内层，没有孩子,同时有父亲的轮廓
+        elif need_hierach_level == -2: #要得到最内层,没有孩子,同时有父亲的轮廓
             condition = np.logical_and(hierarch[0, :, 2] == -1, hierarch[0, :, 3] != -1)
             index = np.array(np.where(condition)).squeeze()
             contours = np.array(contours)[index]
-        else: #要得到内层的某层轮廓，一定都是有父轮廓的
+        else: #要得到内层的某层轮廓,一定都是有父轮廓的
             for i in range(len(contours)):
                 while hierarch[0, i, 3] == -1:
                     continue
@@ -366,7 +391,7 @@ def draw_a_line(line, mask, color, width):
 
 
 def draw_lines(lines, mask, color, width, visual, message):
-    #在mask上画多个直线，会改变mask
+    #在mask上画多个直线,会改变mask
     for line in lines:
         draw_a_line(line, mask, color, width)
     if visual:
@@ -390,56 +415,74 @@ def get_max_inner_circle(mask, visual):
     
     mask = mask.astype('uint8')
     mask_coord = mask2coord(mask, True)
-    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+    valid_point_count = 100
+    if len(mask_coord) < valid_point_count:
+        logger.warning(f"Less than {valid_point_count} points, skip.")
+        return None,None
+    contours, _ = cv2.findContours(mask,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
 
     # Calcul ate the distances to the external contour  
     raw_dist = np.zeros(mask.shape, dtype=np.float32)
 
     
     if len(contours) == 1:
-        # no hole in mask:
-        for i in range(len(mask_coord)):
-            x = mask_coord[i][0]
-            y = mask_coord[i][1]
-            raw_dist[y,x] = cv2.pointPolygonTest(contours[0], (int(x),int(y)), True) # 一定要保证是int
-    elif len(contours) == 2:
-        # have one hole in mask
-        for i in range(len(mask_coord)):
-            x = mask_coord[i][0]
-            y = mask_coord[i][1]
-            distance_to_internal = cv2.pointPolygonTest(contours[1], (int(x),int(y)), True)
-            distance_to_external = cv2.pointPolygonTest(contours[0], (int(x),int(y)), True)
-            if  abs(distance_to_external - abs(distance_to_internal)) < 0.3:
-                raw_dist[y,x] = distance_to_external
-    else:
-        raise ValueError("num of contours is {}".format(len(contours)))
+        contour = contours[0]
+    elif len(contours) > 1:
+        # choose the longest counter
+        logger.warning("More than 1 contours ,choose th longest one.")
+        max_len = 0
+        max_idx = -1
+        for idx,contour in enumerate(contours):
+            if len(contour) > max_len:
+                max_idx = idx
+                max_len = len(contour)
+        contour = contours[max_idx]
+    # no hole in mask:
+    for i in range(len(mask_coord)):
+        x = mask_coord[i][0]
+        y = mask_coord[i][1]
+        raw_dist[y,x] = cv2.pointPolygonTest(contour, (int(x),int(y)), True) # 一定要保证是int
+    # else: # len(contours) == 2:
+    #     # have one hole in mask
+    #     for i in range(len(mask_coord)):
+    #         x = mask_coord[i][0]
+    #         y = mask_coord[i][1]
+    #         distance_to_internal = cv2.pointPolygonTest(contours[1], (int(x),int(y)), True)
+    #         distance_to_external = cv2.pointPolygonTest(contours[0], (int(x),int(y)), True)
+    #         if  abs(distance_to_external - abs(distance_to_internal)) < 0.3:
+    #             raw_dist[y,x] = distance_to_external
 
     _, max_val, _, max_idx = cv2.minMaxLoc(raw_dist)
-    assert max_val > 0
+    if max_val < 0:
+        result = cv2.cvtColor(mask,cv2.COLOR_GRAY2BGR)
+        cv2.drawContours(result, [contour], 0, (255,0,0), 2)
+        cv2.imshow('result_max_val < 0', result)
+        cv2.waitKey()
+        return None,None
 
     if visual:
         result = cv2.cvtColor(mask,cv2.COLOR_GRAY2BGR)
-
         cv2.circle(result,max_idx, np.int(max_val),(0,255,0), 2, cv2.LINE_8, 0)
-        cv2.imshow('result', result)
-        # cv2.waitKey()
-    # return cicle xy coord and fp32 radius 
+        cv2.imshow('result', result)  
+    # return circle xy coord and fp32 radius 
+    if isinstance(max_idx, tuple):
+        max_idx = np.array(max_idx)[::-1]
     return max_idx, max_val
 
 
 def apply_mask_to_img(mask,imgs,color2gray,visual, mask_info):
     '''
-    用mask把img_list中的图像分割出来，其中mask=0的位置全涂黑，否则使用原图像素值
+    用mask把img_list中的图像分割出来,其中mask=0的位置全涂黑,否则使用原图像素值
     :param mask: 二维的二值mask
     :param imgs: 所有图片,可以是单张图片或图片列表
     :param color2gray: 是否把彩色图像转为灰度图像
     :param visual: 是否可视结果
-    :param mask_info:mask相关信息，用以生成不同的mask窗口
+    :param mask_info:mask相关信息,用以生成不同的mask窗口
     :return: 分割后的图像或图像列表
     '''
     if isinstance(imgs, list):
         apply_list = []
-        for i,img in enumerate(imgs):#enumerate中对list的处理是隔离的，不会影响原来的list
+        for i,img in enumerate(imgs):#enumerate中对list的处理是隔离的,不会影响原来的list
             # print(i)
             if is_grayscale(img):
                 img = np.where(mask,img,0)
@@ -461,3 +504,34 @@ def apply_mask_to_img(mask,imgs,color2gray,visual, mask_info):
         if visual:
             cv2.imshow('apply {} mask to img'.format(mask_info), img)
         return img
+
+
+def put_mask_on_img(mask, imgs, visual, mask_info):
+    '''
+    把半透明的红色mask覆盖在img_list中的所有图像上并（在visual=True时）显示
+    :param mask: 二维的二值mask
+    :param imgs: 所有图片,可以是单张图片或图片列表
+    :param visual: 是否可视化
+    :param mask_info:mask相关信息,用以生成不同的mask窗口
+    :return: mask覆盖在图像上的三通道图像或图像列表
+    '''
+    mask_vis = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+    if isinstance(imgs, list):
+        put_list = []
+        for i, img in enumerate(imgs):
+            if is_grayscale(img):
+                img = cv2.cvtColor(img,cv2.COLOR_GRAY2BGR)
+            mask_vis[:, :, 2] = np.where(mask, 255, 0)#只对bgr的r通道赋值,也就是给vis涂上红色
+            mask_on_img = cv2.addWeighted(img, 0.5, mask_vis, 0.5, 0)
+            put_list.append(mask_on_img)
+            if visual:
+                cv2.imshow('put {} mask on img: img {} in img list'.format(mask_info, i), mask_on_img)
+        return put_list
+    else:
+        if is_grayscale(imgs):
+            imgs = cv2.cvtColor(imgs, cv2.COLOR_GRAY2BGR)
+        mask_vis[:, :, 2] = np.where(mask, 255, 0)#只对bgr的r通道赋值,也就是给vis涂上红色
+        mask_on_img = cv2.addWeighted(imgs, 1, mask_vis, 0.5, 0)
+        if visual:
+            cv2.imshow('put {} mask on img'.format(mask_info), mask_on_img)
+        return mask_on_img

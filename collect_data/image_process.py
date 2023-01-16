@@ -2,7 +2,8 @@
 # coding=UTF-8
 import cv2
 import numpy as np
-from mask_process import *
+from collect_data.mask_process import *
+import os
 
 def get_edge_sobel(image, color_name, channel, k = 3, visual = False):
     color_name_image = convert_image(image, color_name)
