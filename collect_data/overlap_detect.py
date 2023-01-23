@@ -5,15 +5,16 @@ import os
 import numpy as np
 import sys
 sys.path.append(os.getcwd())
-from tools.image_mask.mask_process import open_morph,get_half_centroid_mask
-from tools.matrix import gen_rot_mtx_anticlockwise, rot_around_point
+from tools.image_mask.mask_process import open_morph,get_half_centroid_mask,remove_inner_black
 from tools.image_mask.mask_process import mask2coord, coord2mask, get_mask_center
+from tools.matrix import rigid_trans_mask_around_point
 import logging
 
 logger = logging.getLogger(__file__)
 
 
 def _diff_mask(in_kit_img,out_kit_img,visual):
+    """Get diff for ovrelap detect"""
     diff_img = cv2.subtract(out_kit_img,in_kit_img)
     diff_gray = cv2.cvtColor(diff_img, cv2.COLOR_BGR2GRAY)
     # cv2.imshow("diff", diff_gray*10)
@@ -25,34 +26,18 @@ def _diff_mask(in_kit_img,out_kit_img,visual):
     return diff_mask
 
 
-def rigid_trans_mask_around_point(mask:np.ndarray, theta:float, init_point, final_point, clip_outer:bool = True,need_mask:bool=False, visual:bool=False):
-    """Rotate theta around init_center, and translate to final center."""
-    h,w  = mask.shape[:2]
-    mask_coord = mask2coord(mask,need_xy=False)
-    rot_mtx = gen_rot_mtx_anticlockwise(theta,isdegree=True)
-    obj_after_rot = rot_around_point(rot_mtx,mask_coord,init_point)
-    if isinstance(init_point,tuple):
-        init_point = np.array(init_point)
-    if isinstance(final_point,tuple):
-        final_point = np.array(final_point)
-    translation = final_point - init_point
-    obj_after_rigid = obj_after_rot + translation
-    obj_after_rigid = np.around(obj_after_rigid).astype("int")
-    if clip_outer:
-        valid_mask = (obj_after_rigid[:,0] >= 0 ) & (obj_after_rigid[:,1] >= 0) & (obj_after_rigid[:,0] < h) & (obj_after_rigid[:,1] < w)
-        obj_after_rigid = obj_after_rigid[valid_mask]
-    if need_mask:
-        mask_after_rigid = coord2mask(obj_after_rigid,h,w,visual=visual)
-        return mask_after_rigid
-    return obj_after_rigid
 
+    
 
 class OverlapDetector:
     def __init__(self,shape):
+        self._h = shape[0]
+        self._w = shape[1]
         self._obj_mask = np.zeros(shape,dtype = np.int)
     
     def detect_overlap(self, mask, theta, init_point, final_point):
-        rigid_mask = rigid_trans_mask_around_point(mask, theta, init_point,final_point, need_mask=True,visual=True)
+        rigid_coord = rigid_trans_mask_around_point(mask, theta, init_point,final_point)
+        rigid_mask = coord2mask(rigid_coord,self.h, self.w, visual=True)
         intersection_mask = (self._obj_mask & rigid_mask)
         is_overlap = intersection_mask.any()
         if is_overlap:

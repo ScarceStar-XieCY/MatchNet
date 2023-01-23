@@ -3,6 +3,10 @@
 
 import numpy as np
 import math
+import os
+import sys
+sys.path.append(os.getcwd())
+from tools.image_mask.mask_process import mask2coord
 
 def rot_around_point(rot_mtx,value,center_point):
     '''
@@ -40,3 +44,39 @@ def gen_rot_mtx_anticlockwise(angle,isdegree):
     trans = np.eye(3)
     trans[:2, :2] = [[cos_rad, -sin_rad], [sin_rad, cos_rad]]
     return trans
+
+
+def rigid_trans_mask_around_point(mask:np.ndarray, theta:float, init_point, final_point, is_degree:bool = True,clip_outer:bool = True):
+    """Rotate theta around init_center, and translate to final center."""
+    h,w  = mask.shape[:2]
+    mask_coord = mask2coord(mask,need_xy=False)
+    rot_mtx = gen_rot_mtx_anticlockwise(theta,isdegree=is_degree)
+    obj_after_rot = rot_around_point(rot_mtx,mask_coord,init_point)
+    if isinstance(init_point,tuple):
+        init_point = np.array(init_point)
+    if isinstance(final_point,tuple):
+        final_point = np.array(final_point)
+    translation = final_point - init_point
+    obj_after_rigid = obj_after_rot + translation
+    obj_after_rigid = np.ceil(obj_after_rigid).astype("int")
+    if clip_outer:
+        valid_mask = (obj_after_rigid[:,0] >= 0 ) & (obj_after_rigid[:,1] >= 0) & (obj_after_rigid[:,0] < h) & (obj_after_rigid[:,1] < w)
+        obj_after_rigid = obj_after_rigid[valid_mask]
+    return obj_after_rigid
+
+
+
+def reverse_get_corres(coord_after_rigid,theta, init_point, final_point,is_degree, ):
+    """Get reverse point thaT before rigid transform. https://www.zhihu.com/question/430095481"""
+    if len(coord_after_rigid) == 0:
+        return np.zeros((0,2), dtype = "int")
+    rot_mtx = gen_rot_mtx_anticlockwise(-theta,isdegree=is_degree)
+    obj_after_rot = rot_around_point(rot_mtx,coord_after_rigid,final_point)
+    if isinstance(init_point,tuple):
+        init_point = np.array(init_point)
+    if isinstance(final_point,tuple):
+        final_point = np.array(final_point)
+    translation = init_point - final_point
+    obj_reverse_coord = obj_after_rot + translation
+    obj_reverse_coord = np.ceil(obj_reverse_coord).astype("int")
+    return obj_reverse_coord
