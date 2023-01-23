@@ -225,25 +225,29 @@ def get_color_acc2_coord(image, coord):
     print('当前mask的像素点，其bgr颜色为 {}， hsv颜色为{}'.format(one_pixel_color_bgr, one_pixel_color_hsv))
 
 
-def grabcut_get_mask(image, fg_mask, color_space_name, visual):
+def grabcut_get_mask(image, fg_mask, color_space_name, visual,sure_point = None, use_roi = True, r_tole = 20, c_tole = 20):
     # 用grabcut分割图像中的物体，其中fg_mask是输入给grabcut的、确定为前景的mask，
     # 也就是说，这个mask如果覆盖到背景，就会造成分割失败，但同样，mask圈出来的内容不能太少，不然分割出来的区域不完整
     bgdModel = np.zeros((1, 65), np.float64)  # 背景模型
     fgdModel = np.zeros((1, 65), np.float64)  # 前景模型
-    mask = np.full(image.shape[:2], 2, dtype=np.uint8) # 设定全部画面都为“可能的背景”s
+    mask = np.full(image.shape[:2], 2, dtype=np.uint8) # 设定全部画面都为“可能的背景”
     # fg_mask对应的位置设置为3,对应“可能的前景”
     mask = np.where((fg_mask == 255), 3, mask)
+    if sure_point is not None:
+        fg_mask_value = 1 # 前景
+        cv2.circle(mask, sure_point, 5, fg_mask_value, 5)
     h, w, c = image.shape
     color_space_image = convert_image(image, color_space_name)
     # 分别得到xmin，xmax，ymin，ymax 作为ROI，grabcut只处理ROI以降低运算量
-    rmin, rmax, cmin, cmax = mask2bbox(fg_mask)
-    r_tole = 20
-    c_tole = 20
-    rmin -= r_tole if rmin > r_tole else 0
-    rmax += r_tole if rmax < h - r_tole else h
-    cmin -= c_tole  if cmin > c_tole else 0
-    cmax += c_tole if cmax < w - c_tole else w
-    cv2.grabCut(color_space_image[rmin: rmax, cmin:cmax,:], mask[rmin: rmax, cmin:cmax], [0,0,0,0], bgdModel, fgdModel, 3, cv2.GC_INIT_WITH_MASK)#使用mask初始化
+    if use_roi:
+        rmin, rmax, cmin, cmax = mask2bbox(fg_mask)
+        rmin -= r_tole if rmin > r_tole else 0
+        rmax += r_tole if rmax < h - r_tole else h
+        cmin -= c_tole  if cmin > c_tole else 0
+        cmax += c_tole if cmax < w - c_tole else w
+        cv2.grabCut(color_space_image[rmin: rmax, cmin:cmax,:], mask[rmin: rmax, cmin:cmax], [0,0,0,0], bgdModel, fgdModel, 3, cv2.GC_INIT_WITH_MASK)#使用mask初始化
+    else:
+        cv2.grabCut(color_space_image, mask, [0,0,0,0], bgdModel, fgdModel, 3, cv2.GC_INIT_WITH_MASK)
     # cv2.grabCut(color_space_image, mask, [0,0,0,0], bgdModel, fgdModel, 1, cv2.GC_INIT_WITH_MASK)#使用mask初始化
     grabcut_mask = np.where((mask == 2) | (mask == 0), 0, 255).astype('uint8') #把2对应的“可能的背景”和0对应的“背景”部分设为0,其他部分为255
     # img_show = image * mask2[:, :, np.newaxis]

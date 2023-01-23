@@ -8,7 +8,6 @@ import logging
 logger = logging.getLogger(__file__)
 
 
-
 def remove_small_area(mask, area_th,visual, message):
     '''
         去除小面积连通域
@@ -44,6 +43,29 @@ def remove_big_area(mask, area_th,visual, message):
         cv2.imshow('after remove big area_{}'.format(message), mask)
     return mask
 
+
+def remain_largest_area(mask, visual, message:str=None):
+    """Remain the domain that has the largest area."""
+    contours = list(get_exter_contours(mask, 'none'))
+    if len(contours) == 0:
+        raise ValueError("No domain in mask.")
+    if len(contours) == 1:
+        # only one domain
+        if visual:
+            cv2.imshow("the largest area {}".format(message), mask)
+        return mask
+    contour_area_list = []
+    for cnt in contours:
+        contour_area_list.append(cv2.contourArea(cnt))
+    max_index = contour_area_list.index(max(contour_area_list))
+    # contours that going to remove
+    contours.pop(max_index) # type(conturs) == tuple
+    for cnt in contours:
+        cv2.drawContours(mask, [cnt], 0, 0, -1)
+    if visual:
+        cv2.imshow("the largest area {}".format(message), mask)
+    return mask
+    
 
 def remove_inner_white(mask, visual, message):
     contours = get_tree_contours(mask, 'none', -2)
@@ -213,6 +235,7 @@ def get_half_centroid_mask(mask:np.ndarray, left_half:bool, tole:int, visual:boo
     contours = get_exter_contours(new_mask, 'none')
     for cnt in contours:
         cx,cy = get_centroid(cnt)
+        # remove the domain on the not-wanted half
         if (left_half and cx > w_half + tole) or (not left_half and cx < w_half - tole):
             cv2.drawContours(new_mask, [cnt], 0, 0, -1)
     new_mask = remove_small_area(new_mask, 50, False,"")
@@ -239,21 +262,34 @@ def mask2coord(mask,need_xy:bool):
 
 
 def coord2mask(coord,h,w,visual):
-    mask_layer = np.zeros((h,w))
+    mask_layer = np.zeros((h,w),dtype = "uint8")
     mask_layer[coord[:, 0],coord[:, 1]] = 255
     if visual:
         cv2.imshow('mask from coord', mask_layer)
     return mask_layer
 
-def get_mask_center(mask):
+def get_mask_center(mask,multi_center:bool=False, uv_coord:bool=True):
     """Get center of one mask,(u,v). Mask shoud have only one connected-domain."""
     contours = get_exter_contours(mask, 'simple')
     if len(contours) > 0:
         logger.warning("more than one contous exsist.")
-    cnt = contours[0]
-    mask_center = get_centroid(cnt)
-    mask_center = mask_center[::-1]
-    return mask_center
+    # one center, return center coord
+    if not multi_center:
+        cnt = contours[0]
+        mask_center = get_centroid(cnt)
+        if uv_coord:
+            mask_center = mask_center[::-1]
+        return mask_center
+    # multi center ,return center list
+    mask_center_list = []
+    for cnt in contours:
+        mask_center = get_centroid(cnt)
+        if uv_coord:
+            mask_center = mask_center[::-1]
+        mask_center_list.append(mask_center)
+    return mask_center_list
+        
+
 
 
 def is_grayscale(img):
@@ -535,3 +571,31 @@ def put_mask_on_img(mask, imgs, visual, mask_info):
         if visual:
             cv2.imshow('put {} mask on img'.format(mask_info), mask_on_img)
         return mask_on_img
+    
+ # cavity 
+def find_cavity(origin_coord_mask,h,w):
+    """Find cavity from coord or mask."""
+    cavity_list = []
+    if origin_coord_mask.shape[1] == 2:
+        origin_coord_mask = coord2mask(origin_coord_mask, h,w,False)
+    # find cavity
+    for h_index in range(1,h -1):
+        for w_index in range(1, w - 1):
+            if (origin_coord_mask[h_index, w_index] == 0 and origin_coord_mask[h_index -  1, w_index] != 0 and origin_coord_mask[h_index + 1, w_index] != 0 and 
+            origin_coord_mask[h_index, w_index - 1] != 0 and origin_coord_mask[h_index,w_index +1] != 0):
+                # is cavity
+                cavity_list.append([h_index, w_index])
+    if len(cavity_list) == 0:
+        cavity_array = np.zeros((0,2), dtype = "int")
+    else:
+        cavity_array = np.array(cavity_list, dtype="int")
+    return cavity_array
+
+
+def fill_cavity(origin_coord_mask,h,w, visual):
+    """Fill cavity in mask."""
+    cavity_coord = find_cavity(origin_coord_mask, h,w)
+    complete_mask = np.concatenate([origin_coord_mask, cavity_coord], axis=0)
+    if visual:
+        coord2mask(complete_mask,h,w,visual)
+    return complete_mask

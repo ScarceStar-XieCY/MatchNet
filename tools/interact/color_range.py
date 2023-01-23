@@ -3,7 +3,9 @@
 
 import numpy as np
 import cv2
-from tools.image_mask.mask_process import get_centroid
+from tools.image_mask.mask_process import get_centroid, put_mask_on_img
+from tools.image_mask.image_process import convert_image
+
 
 def get_range_from_list(range_list):
     range_array = np.array(range_list, dtype=int)
@@ -142,7 +144,7 @@ def mask_range(img, range,color_space_name):
     :param img: 需要被mask的图像
     :param range: mask的像素范围
     :param color_space_name:分割方式的颜色空间
-    :return: img：已经被mask的图像；
+    :return: img: 已经被mask的图像；
     '''
     if range != []:
         space_name_img = convert_image(img, color_space_name)
