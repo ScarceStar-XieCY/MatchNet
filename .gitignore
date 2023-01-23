@@ -5,6 +5,7 @@ __pycache__/
 SDK_LOG/
 .idea/
 .vscode/
+*.log
 
 # C extensions
 *.so
