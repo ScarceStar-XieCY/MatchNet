@@ -50,7 +50,7 @@ class SuctionLoss(BaseLoss):
         self._device = device
         self._mean = mean
 
-    def forward(self, out, label, add_dice_loss=False):
+    def forward(self, out, label, add_dice_loss=True):
         batch_size = len(label)
         if self._mean:
             loss = zero_loss(self._device)

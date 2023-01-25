@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 # import open3d as o3d
 
-from skimage.draw import circle
+from skimage.draw import circle_perimeter
 
 from matchnet.code.utils.misc import rotate_img
 

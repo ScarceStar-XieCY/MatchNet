@@ -77,12 +77,13 @@ if __name__ == "__main__":
         for i, (imgs, labels, centers) in enumerate(train_loader):
 
             imgs = imgs.to(device)
+            cuda_labels = []
             for j in range(len(labels)):
-                labels[j] = labels[j].to(device)
+                cuda_labels.append(labels[j].to(device))
 
             out_s, out_t = model(imgs,centers[0][0], centers[0][1])
             optimizer.zero_grad()
-            loss = criterion(out_s, out_t, labels) #TODO:check output shape and split
+            loss = criterion(out_s, out_t, cuda_labels) #TODO:check output shape and split
             loss.backward()
             optimizer.step()
             train_epoch_loss.append(loss.item())
@@ -93,9 +94,9 @@ if __name__ == "__main__":
                 print("epoch = {}/{}, {}/{} of train, loss = {}".format(epoch, opt.epochs, i, len(train_loader),loss.item()))
                 train_epochs_loss.append(np.average(train_epoch_loss))
 
-        if (epoch % 10 == 0 and epoch != 0) or (epoch < 155 and epoch > 145):                            # 选择输出的epoch
+        if ((epoch + 1) % 5 == 0 and epoch != 0) or (epoch < 155 and epoch > 145):                            # 选择输出的epoch
             print("---------saving model for epoch {}----------".format(epoch))
-            savedpath = savepath + 'coor_epoch' + str(epoch) + '.pth'
+            savedpath = savepath + 'coor_epoch' + str(epoch + 1) + '.pth'
             torch.save(model.state_dict(), savedpath)
 
         if epoch + 1 == epochs:

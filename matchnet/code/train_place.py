@@ -9,7 +9,7 @@ from torchvision import transforms
 from torchvision import datasets
 from torch.utils.data import DataLoader
 
-from matchnet.code.ml.dataloader import PlacementDataset
+from matchnet.code.ml.dataloader.placement import get_placement_loader
 from matchnet.code.ml.models.placement import PlacementNet
 from matchnet.code.ml import losses
 
@@ -24,39 +24,43 @@ if __name__ == "__main__":
     parser.add_argument("--sample_ratio", type=int, default=3, help="The ratio of negative to positive labels.")
     parser.add_argument("--epochs", type=int, default=160, help="The number of training epochs.")
     parser.add_argument("--augment", action='store_true', help="(bool) Whether to apply data augmentation.")
-    parser.add_argument("--background_subtract", type=tuple, default=(0.04, 0.047), help="apply mask.")
+    parser.add_argument("--background_subtract", type=tuple, default=None, help="apply mask.")
     parser.add_argument("--dtype", type=str, default="valid")
     parser.add_argument("--imgsize", type=list, default=[848,480], help="size of final image.")
     parser.add_argument("--root", type=str, default="", help="the path of dataset")
-    parser.add_argument("--savepath", type=str, default="form2fit/code/ml/savedmodel/", help="the path of saved models")
+    parser.add_argument("--savepath", type=str, default="matchnet/code/ml/savedmodel/", help="the path of saved models")
     opt = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     batch_size = opt.batchsize
     epochs = opt.epochs
-    root = ""
+    kit_name = "bear"
     savepath = opt.savepath
     testroot = "dataset/test"
     background_subtract = opt.background_subtract
-    num_channels = 2
+    use_color = True
+    num_channels = 4
     sample_ratio = 5
-    radius = 1
+    radius = 5
+    
 
     print("--------------start preparing data--------------")
     
 
-    train_loader = PlacementDataset.get_placement_loader(root, 
+    train_loader = get_placement_loader(kit_name, 
                                         dtype="test", 
                                         batch_size=batch_size, 
+                                        use_color = use_color,
                                         num_channels=num_channels, 
                                         sample_ratio=sample_ratio, 
                                         augment=True if opt.augment else False,
                                         shuffle=True,
+                                        radius=radius,
                                         background_subtract=background_subtract)
 
-    model = PlacementNet(num_channels=num_channels, num_descriptor=64, num_rotations=20).to(device)
-    criterion = losses.CorrespondenceLoss(sample_ratio=sample_ratio, device=device)
+    model = PlacementNet(num_channels=num_channels).to(device)
+    criterion = losses.PlacementLoss(sample_ratio=sample_ratio, device=device,mean=True)
     optimizer = torch.optim.Adam(model.parameters(),lr=1e-4)
     train_loss = []
     valid_loss = []
@@ -72,12 +76,13 @@ if __name__ == "__main__":
         for i, (imgs, labels) in enumerate(train_loader):
 
             imgs = imgs.to(device)
+            cuda_labels = []
             for j in range(len(labels)):
-                labels[j] = labels[j].cuda()
+                cuda_labels.append(labels[j].to(device))
 
             output = model(imgs)
             optimizer.zero_grad()
-            loss = criterion(output, labels)
+            loss = criterion(output, cuda_labels,add_dice_loss=True)
             loss.backward()
             optimizer.step()
             train_epoch_loss.append(loss.item())
@@ -88,9 +93,9 @@ if __name__ == "__main__":
                 print("epoch = {}/{}, {}/{} of train, loss = {}".format(epoch, opt.epochs, i, len(train_loader),loss.item()))
                 train_epochs_loss.append(np.average(train_epoch_loss))
 
-        if (epoch % 40 == 0 and epoch != 0) or (epoch < 155 and epoch > 145):                            # 选择输出的epoch
+        if ((epoch+1) % 5 == 0 and epoch != 0) or (epoch < 155 and epoch > 145):                            # 选择输出的epoch
             print("---------saving model for epoch {}----------".format(epoch))
-            savedpath = savepath + 'place_epoch' + str(epoch) + '.pth'
+            savedpath = savepath + 'place_epoch' + str(epoch +1) + '.pth'
             torch.save(model.state_dict(), savedpath)
 
         if epoch + 1 == epochs:

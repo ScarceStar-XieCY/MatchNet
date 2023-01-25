@@ -8,18 +8,16 @@ import os
 import pickle
 
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-
+from tools.image_mask.mask_process import mask2coord
 from pathlib import Path
 from PIL import Image
-from skimage.draw import circle
+from skimage.draw import circle_perimeter
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
 from tools.matrix import gen_rot_mtx_anticlockwise
-from matchnet import config
 from matchnet.code.utils import misc
 
 
@@ -27,7 +25,7 @@ class PlacementDataset(Dataset):
     """The placement network dataset.
     """
 
-    def __init__(self, root, sample_ratio, stateless, augment, background_subtract, num_channels, radius):
+    def __init__(self, root, sample_ratio, stateless, augment, background_subtract,use_color, num_channels, radius):
         """Initializes the dataset.
 
         Args:
@@ -39,6 +37,7 @@ class PlacementDataset(Dataset):
                 in the sequence.
             augment: (bool) Whether to apply data augmentation.
             background_subtract: (bool) Whether to apply background subtraction.
+            use_color: (bool) Whether to use color image.
             num_channels: (int) 4 clones the grayscale image to produce an RGB image.
         """
         self._root = root
@@ -47,51 +46,67 @@ class PlacementDataset(Dataset):
         self._stateless = stateless
         self._background_subtract = background_subtract
         self._num_channels = num_channels
-        self.radius = radius
+        self._radius = radius
+        self._use_color = use_color
 
         # figure out how many data samples we have
         self._get_filenames()
 
-        stats = pickle.load(open(os.path.join(Path(self._root).parent, "mean_std.p"), "rb"))
-        if self._num_channels == 4:
-            self._c_norm = transforms.Normalize(mean=stats[0][0] * 3, std=stats[0][1] * 3)
+         # load per-channel mean and std
+        norm_info = pickle.load(open(os.path.join(Path(self._root).parent, "mean_std.pkl"), "rb"))
+        if use_color:
+            color_key = "color"
+            self._c_norm = transforms.Normalize(mean=norm_info[color_key]["mean"], std=norm_info[color_key]["std"])
         else:
-            self._c_norm = transforms.Normalize(mean=stats[0][0], std=stats[0][1])
-        self._d_norm = transforms.Normalize(mean=stats[1][0], std=stats[1][1])
+            color_key = "gray"
+            if num_channels == 2:
+                self._c_norm = transforms.Normalize(mean=norm_info[color_key]["mean"], std=norm_info[color_key]["std"])
+            else:
+                self._c_norm = transforms.Normalize(mean=norm_info[color_key]["mean"]*3, std=norm_info[color_key]["std"]*3)
+        self._d_norm = transforms.Normalize(mean=norm_info["depth"]["mean"], std=norm_info["depth"]["std"])
         self._transform = transforms.ToTensor()
 
     def __len__(self):
         return len(self._filenames)
 
     def _get_filenames(self):
+        """Returns a list of filenames to process.
+        """
         self._filenames = glob.glob(os.path.join(self._root, "*/"))
         self._filenames.sort(key=lambda x: int(x.split("/")[-2]))
 
     def _load_state(self, name):
         """Loads the raw state variables.
         """
+
+        # load visual
+        if self._use_color:
+            color_name = "color.png"
+        else:
+            color_name = "gray.png"
+        depth_name = "depth.png"
+            
+        c_height_i = cv2.imread(os.path.join(name, "init_" + color_name),cv2.IMREAD_UNCHANGED)
+        d_height_i = cv2.imread(os.path.join(name, "init_" + depth_name),cv2.IMREAD_UNCHANGED)
+        c_height_f = cv2.imread(os.path.join(name, "final_" + color_name),cv2.IMREAD_UNCHANGED)
+        d_height_f = cv2.imread(os.path.join(name, "final_" + depth_name),cv2.IMREAD_UNCHANGED)
+
+        # # convert depth to meters
+        # d_height_i = (d_height_i * 1e-3).astype("float32")
+        # d_height = (d_height * 1e-3).astype("float32")
+
         # load the list of suction points
-        placement_points = np.loadtxt(os.path.join(name, "placement_points.txt"), ndmin=2)
+        # load info_dict
+        info_dict = pickle.load(open(os.path.join(name, "info_dict.pkl"),"rb"))
 
         # we just want the current timestep place point
-        placement_points = np.round(placement_points)
+        placement_points = info_dict["init_point"]
         if self._stateless:
             placement_points = placement_points[-1:]
 
-        # load heightmaps
-        c_height = np.asarray(Image.open(os.path.join(name, "final_color_height.png")))
-        d_height = np.asarray(Image.open(os.path.join(name, "final_depth_height.png")))
-        c_height_i = np.asarray(Image.open(os.path.join(name, "init_color_height.png")))
-        d_height_i = np.asarray(Image.open(os.path.join(name, "init_depth_height.png")))
-
-        # convert depth to meters
-        d_height_i = (d_height_i * 1e-3).astype("float32")
-        d_height = (d_height * 1e-3).astype("float32")
-
         # load kit mask
-        kit_mask = np.load(os.path.join(name, "curr_kit_plus_hole_mask.npy"))
-
-        return c_height, d_height, placement_points, kit_mask, c_height_i, d_height_i
+        kit_mask = info_dict["kit_no_hole"][-1]
+        return c_height_f, d_height_f, placement_points, kit_mask, c_height_i, d_height_i
 
     def _split_heightmap(self, height):
         """Splits a heightmap into a source and target.
@@ -175,6 +190,17 @@ class PlacementDataset(Dataset):
         tu = np.random.uniform(-min_vv + 10, self._W - max_vv - 10)
         tv = np.random.uniform(-min_uu + 10, self._H - max_uu - 10)
         return tu, tv
+    
+    def get_circle_point(self, uv_center, radius):
+        """Get all point of one circle."""
+        mask = np.zeros((self._H, self._W),dtype = "uint8")
+        rr, cc = circle_perimeter(uv_center[0], uv_center[1], radius)
+        mask[rr,cc] = 255
+        coord = np.stack([rr,cc],axis = 1)
+        cv2.fillConvexPoly(mask,coord[:,::-1],255)
+        circle_coord = mask2coord(mask, need_xy=False)
+        return circle_coord
+
 
     def __getitem__(self, idx):
         name = self._filenames[idx]
@@ -191,12 +217,15 @@ class PlacementDataset(Dataset):
 
         pos_placement = []
         for pos in positives:
-            rr, cc = circle(pos[0], pos[1], self.radius)
-            pos_placement.append(np.vstack([rr, cc]).T)
+            if isinstance(pos, tuple):
+                pos = np.array(pos)
+            pos[1] -= self._half
+            circle_points = self.get_circle_point(pos, self._radius)
+            pos_placement.append(circle_points)
         pos_placement = np.concatenate(pos_placement)
 
         # offset placement point to adjust for splitting
-        pos_placement[:, 1] = pos_placement[:, 1] - self._half
+        # pos_placement[:, 1] = pos_placement[:, 1] - self._half
         kit_mask[:, 1] = kit_mask[:, 1] - self._half
 
         # center of rotation is the center of the kit
@@ -247,18 +276,25 @@ class PlacementDataset(Dataset):
             c_height_i[idxs[:, 0], idxs[:, 1]] = 0
             d_height_i[idxs[:, 0], idxs[:, 1]] = 0
 
-        if self._num_channels == 2:
-            c_height = c_height[..., np.newaxis]
-            c_height_i = c_height_i[..., np.newaxis]
-        else:  # clone the gray channel 3 times
-            c_height = np.repeat(c_height[..., np.newaxis], 3, axis=-1)
-            c_height_i = np.repeat(c_height_i[..., np.newaxis], 3, axis=-1)
+        # expand to proper dim
+        if not self._use_color:
+            assert c_height.ndim == 2
+            if self._num_channels == 2:
+                c_height = c_height[..., np.newaxis]
+                c_height_i = c_height_i[..., np.newaxis]
+            else:  # clone the gray channel 3 times
+                c_height = np.repeat(c_height[..., np.newaxis], 3, axis=-1)
+                c_height_i = np.repeat(c_height_i[..., np.newaxis], 3, axis=-1)
+        else:
+            assert c_height.ndim == 3 and c_height.shape[2] == 3
+        d_height = d_height[..., np.newaxis]
+        d_height_i = d_height_i[..., np.newaxis]
 
         # convert heightmaps tensors
         c_height = self._c_norm(self._transform(c_height))
-        d_height = self._d_norm(self._transform(d_height[..., np.newaxis]))
+        d_height = self._d_norm(self._transform(d_height))
         c_height_i = self._c_norm(self._transform(c_height_i))
-        d_height_i = self._d_norm(self._transform(d_height_i[..., np.newaxis]))
+        d_height_i = self._d_norm(self._transform(d_height_i))
 
         # concatenate height and depth into a 4-channel tensor
         # img_tensor = torch.cat([c_height, d_height], dim=0)
@@ -298,6 +334,7 @@ def get_placement_loader(
     stateless=True,
     augment=False,
     background_subtract=None,
+    use_color=True,
     num_channels=2,
     radius=2,
     num_workers=4,
@@ -339,7 +376,7 @@ def get_placement_loader(
         return [imgs, labels]
 
     num_workers = min(num_workers, multiprocessing.cpu_count())
-    root = os.path.join(config.ml_data_dir, foldername, dtype)
+    root = os.path.join("..","datasets",foldername)
 
     dataset = PlacementDataset(
         root,
@@ -347,6 +384,7 @@ def get_placement_loader(
         stateless,
         augment,
         background_subtract,
+        use_color,
         num_channels,
         radius,
     )

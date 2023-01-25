@@ -13,13 +13,11 @@ import torch
 
 from functools import reduce
 from pathlib import Path
-from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
 from matchnet.code.utils import misc, viz
 from matchnet.code.utils import sampling
-from matchnet import config
 from tools.matrix import gen_rot_mtx_anticlockwise
 
 
@@ -90,7 +88,7 @@ class CorrespondenceDataset(Dataset):
         """Returns a list of filenames to process.
         """
         self._filenames = glob.glob(os.path.join(self._root, "*/"))
-        self._filenames.sort(key=lambda x: int(x.split("\\")[-2]))
+        self._filenames.sort(key=lambda x: int(x.split("/")[-2]))
 
     def _load_state(self, name):
         # load visual
@@ -680,7 +678,7 @@ def get_corr_loader(
         return [imgs, labels, centers]
 
     num_workers = min(num_workers, multiprocessing.cpu_count())
-    root = os.path.join("20230108","datasets",foldername)
+    root = os.path.join("..","datasets",foldername)
 
     dataset = CorrespondenceDataset(
         root,
