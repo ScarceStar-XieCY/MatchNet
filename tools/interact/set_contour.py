@@ -16,7 +16,7 @@ from tools.matrix import rigid_trans_mask_around_point, reverse_get_corres
 logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger("console_logger")
 
-DICT_NAME_LIST = ["angle","obj_mask","corres_mask","center",]
+DICT_NAME_LIST = ["kit_mask",]
 DICT_SUFFIX = "_dict.pkl"
 
 
@@ -99,7 +99,6 @@ def update_corres_mask(image_path, obj_mask_dict, corres_dict,center_dict, delta
 
 def draw_corres_mask(image_path, corres_dict, h,w, image):
     if corres_dict.get(image_path,None) is None:
-        cv2.imshow("put corres mask mask on img", image)
         return
     mask1_corrd, mask2_coord = corres_dict[image_path]
     mask1 = coord2mask(mask1_corrd,h,w,False)
@@ -108,10 +107,16 @@ def draw_corres_mask(image_path, corres_dict, h,w, image):
     put_mask_on_img(corres_mask,image.copy(),True,"corres mask")
 
 
+def draw_poly(image, pt_list,visual):
+    pt_array = np.array(pt_list)
+    poly_mask = np.zeros((image.shape[:2]), dtype="uint8")
+    cv2.fillConvexPoly(poly_mask, pt_array, 255)
+    put_mask_on_img(poly_mask, image, visual,"")
+    return mask2coord(poly_mask, need_xy=False)
+
 def window_react(event,x,y,flags,param):
     """Window reaction."""
-    image,window_name, pt_list, angle_list, image_path = param[:5]
-    angle_dict, obj_mask_dict, corres_dict, center_dict = param[5:]
+    image,window_name, pt_list, _, _,_,_ = param
     if event == cv2.EVENT_LBUTTONDOWN:
         pt_list.append((x,y))
         logger.info("Add point (%s, %s)",x,y)
@@ -120,49 +125,55 @@ def window_react(event,x,y,flags,param):
         logger.info("Delete point (%s,%s)",x,y)
     if event == cv2.EVENT_LBUTTONDOWN or event == cv2.EVENT_RBUTTONDOWN:
         img = image.copy()
-        h,w = image.shape[:2]
         draw_points_on_img(img, pt_list)
-        draw_lines_on_image(img, pt_list)
-        angle_list = calculate_angles(pt_list)
-        param[3] = angle_list
-        delta_angle = update_delta_angle(angle_list, angle_dict, image_path)
-        text_delta_angle(image_path, angle_dict, img)
-        update_corres_mask(image_path, obj_mask_dict, corres_dict,center_dict, delta_angle,is_degree=True)
-        draw_corres_mask(image_path, corres_dict, h,w, image) # will show corres mask window
+        kit_coord = draw_poly(img, pt_list, True)
+        param[-1] = kit_coord
         cv2.imshow(window_name, img)
 
+def draw_exsist_mask(image, mask_coord,h,w, message):
+    poly_mask = coord2mask(mask_coord,h,w,False)
+    put_mask_on_img(poly_mask, image.copy(),True,message)
 
-def label_one_image(dict_list, on_mouse_param):
+def label_one_image(on_mouse_param,):
     """Label:first click on obj out of kit, then the obj in the kit."""
-    image,window_name, _, _,_, = on_mouse_param
-    on_mouse_param.extend(dict_list)
+    image,window_name, pt_list, image_path, kit_mask, last_kit_mask = on_mouse_param
+    on_mouse_param.append(None)
     cv2.namedWindow(window_name)
     cv2.imshow(window_name, image)
     cv2.setMouseCallback(window_name, window_react, on_mouse_param)
     # control with keyboard
     # q
+    h,w = image.shape[:2]
+    if kit_mask.get(image_path,None) is not None:
+        draw_exsist_mask(image,kit_mask[image_path],h,w,"exsist")
+    if last_kit_mask is not None:
+        draw_exsist_mask(image,last_kit_mask,h,w,"last")
+
+
     while True:
         key = cv2.waitKey()
         pt_list = on_mouse_param[2]
-        angle_list = on_mouse_param[3]
-        if key not in [ord("z"),ord("s"),ord("q")]:
-            logger.info("Press z to skip this image; press s to save if possible; press q to quit and save current")
+        if key not in [ord("z"),ord("s"),ord("q"),ord("a")]:
+            logger.info("Press z to skip this image; press s to save if possible; press q to quit and save current, press a to use last kit mask")
             continue
         # skip this image when press "z"
         if key == ord("z"):
             logger.info("skip this image")
             return 0
-
+        if key == ord("a"):
+            kit_mask[image_path]= last_kit_mask
+            return 0
         # confirm save
-        if key == ord("s") and len(angle_list) == 2:
+        if key == ord("s") and len(pt_list) == 4:
+            kit_mask[image_path] = param[-1]
             return 0
         # quit
         if key == ord("q"):
             cv2.destroyWindow(window_name)
             return 1
-        if len(angle_list) != 2:
+        if len(pt_list) != 4:
             print("len of pt",len(pt_list))
-            logger.warning("No enough angle. %s", angle_list)
+            logger.warning("No enough pt. %s", pt_list)
         
 
 def _diff_mask(in_kit_img,out_kit_img,visual,kit_name):
@@ -177,23 +188,23 @@ def _diff_mask(in_kit_img,out_kit_img,visual,kit_name):
             img_intre = in_kit_img
             img_ref = out_kit_img
         diff_img = cv2.subtract(img_ref, img_intre)
-        if diff_img.max() < 128:
-            diff_img = np.where(diff_img > 10, 255 - diff_img, diff_img)
         diff_gray = cv2.cvtColor(diff_img, cv2.COLOR_BGR2GRAY)
         # diff_gray = cv2.blur(diff_gray,(5,5)) 
-        diff_gray[diff_gray < 10] = 0
+        if kit_name not in ["bee"]:
+            diff_gray[diff_gray < 10] = 0
+        if kit_name in ["bee"]:
+            diff_gray[diff_gray != 0] = 255
         # if visual:
         #     cv2.imshow("diff_gray", diff_gray.astype("uint8"))
         #     cv2.waitKey()
         dthresh, diff_mask = cv2.threshold(diff_gray, 0,255,cv2.THRESH_BINARY,cv2.THRESH_OTSU)
         # diff_mask = open_morph(diff_mask,3,2)
-        diff_mask = erode(diff_mask,3,3)
+        diff_mask = erode(diff_mask,3,2)
         if visual:
             cv2.imshow("diff_open", diff_mask)
         diff_mask = get_half_centroid_mask(diff_mask, left_half,0,visual)
         # grabcut to confim color domain
         center_coord = get_mask_center(diff_mask,False,False)
-        diff_mask = remain_largest_area(diff_mask, visual,"")
         # diff_mask = np.zeros_like(diff_mask, dtype= "uint8")
         # draw_point_on_img(diff_mask,center_coord, 255)
         
@@ -248,16 +259,17 @@ if __name__ == "__main__":
     # create info dicts
     
     dict_list = load_info_dict(DICT_NAME_LIST, dir_path)
-    angle_dict, obj_mask_dict, corres_dict, center_dict = dict_list
+    kit_mask = dict_list[0]
 
     window_name = "angle_label"
     skip_kit = ["bee","bee_rev"]
     for root_dir_name, dir_list, file_list in os.walk(dir_path):
         ret_status = None
+        last_kit_mask = None
         if os.path.basename(root_dir_name) in skip_kit:
             continue
         file_list = filter_sort_image(file_list)
-        for img_idx in range(1,len(file_list)):
+        for img_idx in range(0,len(file_list)):
             # read cur and pre image
             cur_image_path = os.path.join(root_dir_name, file_list[img_idx])
             pre_image_path = os.path.join(root_dir_name,file_list[img_idx - 1])
@@ -266,29 +278,12 @@ if __name__ == "__main__":
             # cv2.imshow("cur_image",cur_image)
             # cv2.imshow("pre_image", pre_image)
             pt_list = []
-            angle_list = []
             # get diff and calculate mask 
-            try:
-                diff_mask_list = _diff_mask(pre_image, cur_image,visual = False, kit_name = os.path.basename(root_dir_name))
-                center_list = []
-                for diff_mask in diff_mask_list:
-                    center_coord = get_mask_center(diff_mask,multi_center=False,uv_coord = False)
-                    center_list.append(center_coord)
-                draw_points_on_img(cur_image,center_list,(255,0,255)) # purple
-            except Exception:
-                logger.warning("Can't get valid mask info. Skip. %s",cur_image_path)
-                continue
-            
-            obj_mask_dict[cur_image_path] = diff_mask_list # left and right obj mask
-            center_dict[cur_image_path] = center_list
-
             show_image = cv2.addWeighted(pre_image,0.5, cur_image, 0.5, 0)
-            param = [show_image, window_name, pt_list, angle_list, cur_image_path]
-            put_mask_on_img(get_union(diff_mask_list[0],diff_mask_list[1],False,"diff mask"), cur_image.copy(),True,"")
-            h, w = diff_mask_list[0].shape[:2]
-            draw_corres_mask(cur_image_path, corres_dict, h,w, show_image)
-            ret_status = label_one_image(dict_list, param)
-
+            param = [cur_image,window_name, pt_list, cur_image_path, kit_mask, last_kit_mask]
+            ret_status = label_one_image(param)
+            if kit_mask.get(cur_image_path,None) is not None:
+                last_kit_mask = kit_mask[cur_image_path]
             if ret_status == 1:
                 break
         if ret_status == 1:

@@ -13,14 +13,16 @@ from tools.image_mask.image_process import grabcut_get_mask,convert_image,get_ex
 logger = logging.getLogger(__name__)
 
 
-def kmeans_image(image,k):
+def kmeans_image(image,k, need_center_value:bool=False):
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0) 
     height, width  = image.shape[:2]
     channel = 1 if image.ndim == 2 or (image.ndim == 3 and image.shape[2] == 1) else 3
     # kmeans needs fp32 format image
     image_f32 = image.astype("float32").reshape((height * width,channel))
-    ret, label, center=cv2.kmeans(image_f32, k, None, criteria,10, cv2.KMEANS_RANDOM_CENTERS)
+    ret, label, label_center_value=cv2.kmeans(image_f32, k, None, criteria,10, cv2.KMEANS_RANDOM_CENTERS)
     label = label.reshape(image.shape[:2])
+    if need_center_value:
+        return label,label_center_value
     return label
 
 
