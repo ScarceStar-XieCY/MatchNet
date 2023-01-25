@@ -71,7 +71,7 @@ def calculate_kit_no_hole_mask(depth_image, visual, compare_image=None):
 
 def update_dump_info_dict(dict_list, load_key, info_dict, dump_dir):
     angle_dict, obj_mask_dict, corres_dict, center_dict, kit_mask = dict_list
-    key_list = ["delta_angle","obj","hole","kit_with_hole","kit_no_hole","corres_obj","corres_hole","init_point","final_point"]
+    key_list = ["delta_angle","obj","hole","kit_with_hole","kit_no_hole","corres_obj","corres_hole","corres","init_point","final_point"]
     for key in key_list:
         if info_dict.get(key, None) is None:
             info_dict[key] = []
@@ -80,6 +80,7 @@ def update_dump_info_dict(dict_list, load_key, info_dict, dump_dir):
     info_dict["hole"].append(mask2coord(obj_mask_dict[load_key][1], need_xy=False))
     info_dict["corres_obj"].append(corres_dict[load_key][0])
     info_dict["corres_hole"].append(corres_dict[load_key][1])
+    info_dict["corres"].append(np.concatenate([corres_dict[load_key][1], corres_dict[load_key][0]], axis=1)) # source, target
     info_dict["final_point"].append(center_dict[load_key][0][::-1])
     info_dict["init_point"].append(center_dict[load_key][1][::-1])
     # calculate kit mask

@@ -30,7 +30,7 @@ def rot_around_point(rot_mtx,value,center_point):
     value_after_rot = value_after_rot[:, :2]
     return value_after_rot
 
-def gen_rot_mtx_anticlockwise(angle,isdegree):
+def gen_rot_mtx_anticlockwise(angle,isdegree:bool=False):
     '''
     生成逆时针旋转指定角的旋转矩阵
     :param angle:要逆时针旋转的角
