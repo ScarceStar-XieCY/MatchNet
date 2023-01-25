@@ -33,12 +33,12 @@ if __name__ == "__main__":
         os.makedirs(save_dir)
 
     kit_poses = {}
-    kit_dirs = glob.glob("../../benchmark/data/train" + "/*")
+    kit_dirs = glob.glob("20230108\datasets" + "/*")
     for kit_idx, data_dir in enumerate(kit_dirs):
         print(data_dir.split("/")[-1])
 
-        train_dir = os.path.join(data_dir, "train")
-        test_dir = os.path.join(data_dir, "test")
+        train_dir = os.path.join(data_dir)
+        test_dir = os.path.join(data_dir)
 
         train_foldernames = glob.glob(train_dir + "/*")
         test_foldernames = glob.glob(test_dir + "/*")
@@ -46,9 +46,9 @@ if __name__ == "__main__":
 
         pred_poses = []
         for test_folder in tqdm(test_foldernames, leave=False):
-            # load camera params
-            intr = np.loadtxt(os.path.join(data_dir, "intr.txt"))
-            extr = np.loadtxt(os.path.join(data_dir, "extr.txt"))
+            # # load camera params
+            # intr = np.loadtxt(os.path.join(data_dir, "intr.txt"))
+            # extr = np.loadtxt(os.path.join(data_dir, "extr.txt"))
 
             # load test color and depth heightmaps
             color_test = common.colorload(os.path.join(test_folder, "final_color_height.png"))

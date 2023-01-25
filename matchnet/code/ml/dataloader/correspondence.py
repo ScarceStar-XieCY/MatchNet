@@ -66,20 +66,28 @@ class CorrespondenceDataset(Dataset):
         # generate rotation increments
         self._rot_step_size = 360 / num_rotations
         self._rotations = np.array([self._rot_step_size * i for i in range(num_rotations)])
-
         # load per-channel mean and std
+        self._load_norm_info()
+        self._c_norm = transforms.Normalize(mean=self.c_mean, std=self.c_std)
+        self._d_norm = transforms.Normalize(mean=self.d_mean, std=self.d_std)
+        self._transform = transforms.ToTensor()
+
+    def _load_norm_info(self,):
         norm_info = pickle.load(open(os.path.join(Path(self._root).parent, "mean_std.pkl"), "rb"))
-        if use_color:
+        self.norm_info = norm_info
+        # color
+        if self._use_color:
             color_key = "color"
-            self._c_norm = transforms.Normalize(mean=norm_info[color_key]["mean"], std=norm_info[color_key]["std"])
         else:
             color_key = "gray"
-            if num_channels == 2:
-                self._c_norm = transforms.Normalize(mean=norm_info[color_key]["mean"], std=norm_info[color_key]["std"])
-            else:
-                self._c_norm = transforms.Normalize(mean=norm_info[color_key]["mean"]*3, std=norm_info[color_key]["std"]*3)
-        self._d_norm = transforms.Normalize(mean=norm_info["depth"]["mean"], std=norm_info["depth"]["std"])
-        self._transform = transforms.ToTensor()
+        self.c_mean = norm_info[color_key]["mean"]
+        self.c_std = norm_info[color_key]["std"]
+        if not self._use_color and self._num_channels == 4:
+            self.c_mean = self.c_mean*3
+            self.c_std = self.c_std *3
+        # depth
+        self.d_mean = norm_info["depth"]["mean"]
+        self.d_std = norm_info["depth"]["std"]
 
     def __len__(self):
         return len(self._filenames)

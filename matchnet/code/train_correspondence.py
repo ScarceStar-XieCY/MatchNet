@@ -90,9 +90,8 @@ if __name__ == "__main__":
             train_loss.append(loss.item())
 
             #print("epoch={}/{},{}/{}of train, loss={}".format(epoch, opt.epochs, i, len(train_loader),loss.item()))
-            if i % (len(train_loader)//2) == 0:
-                print("epoch = {}/{}, {}/{} of train, loss = {}".format(epoch, opt.epochs, i, len(train_loader),loss.item()))
-                train_epochs_loss.append(np.average(train_epoch_loss))
+            print("epoch = {}/{}, {}/{} of train, loss = {}".format(epoch, opt.epochs, i, len(train_loader),loss.item()))
+        train_epochs_loss.append(np.average(train_epoch_loss))
 
         if ((epoch + 1) % 5 == 0 and epoch != 0) or (epoch < 155 and epoch > 145):                            # 选择输出的epoch
             print("---------saving model for epoch {}----------".format(epoch))

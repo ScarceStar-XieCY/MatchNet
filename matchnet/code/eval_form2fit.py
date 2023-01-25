@@ -41,11 +41,11 @@ def main(args):
         background_subtract=config.BACKGROUND_SUBTRACT[args.foldername],
     )
 
-    stats = dloader.dataset.stats
-    color_mean = stats[0][0]
-    color_std = stats[0][1]
-    depth_mean = stats[1][0]
-    depth_std = stats[1][1]
+
+    color_mean = dloader.dataset.c_mean
+    color_std = dloader.dataset.c_std
+    depth_mean = dloader.dataset.d_mean
+    depth_std = dloader.dataset.d_std
 
     # load model
     model = CorrespondenceNet(2, 64, 20).to(device)
