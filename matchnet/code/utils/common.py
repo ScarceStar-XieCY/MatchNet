@@ -7,6 +7,7 @@ import os
 import numpy as np
 import skimage.io as io
 import cv2
+import os
 from PIL import Image
 
 
@@ -36,15 +37,30 @@ def depthsave(filename, x):
     io.imsave(filename, (x * 1000).astype("uint16"), check_contrast=False)
 
 
-def colorload(filename):
+def colorload(folder,init, use_color):
     """Loads an rgb image as a numpy array.
     """
+    if init:
+        time_prefix = "init_"
+    else:
+        time_prefix = "final_"
+    if use_color:
+                color_name = "color.png"
+    else:
+        color_name = "gray.png"
+
+    filename = os.path.join(folder, time_prefix + color_name)
     return cv2.imread(filename,cv2.IMREAD_UNCHANGED)
 
 
-def depthload(filename):
+def depthload(folder, init):
     """Loads a depth image as a numpy array.
     """
+    if init:
+        time_prefix = "init_"
+    else:
+        time_prefix = "final_"
+    filename = os.path.join(folder, time_prefix + "depth.png")
     x = cv2.imread(filename,cv2.IMREAD_UNCHANGED)
     # x = (x * 1e-3).astype("float32")
     return x

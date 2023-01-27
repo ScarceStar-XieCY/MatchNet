@@ -146,7 +146,7 @@ def process_mask(mask, erode=True, kernel_size=3):
 #     rmin, rmax = np.where(rows)[0][[0, -1]]
 #     cmin, cmax = np.where(cols)[0][[0, -1]]
 #     return rmin, rmax, cmin, cmax
-def largest_cc(mask,bol2img):
+def largest_cc(mask,bol2img=False):
     '''
     选出除0像素之外，最大的连通域
     :param mask:一张图
