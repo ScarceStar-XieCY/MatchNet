@@ -19,15 +19,17 @@ from matchnet.code.ml.dataloader import get_corr_loader
 from matchnet.code.utils import misc, ml
 from matchnet.code.utils.pointcloud import transform_xyz
 from tools.matrix import gen_rot_mtx_anticlockwise
+import logging
 
+logger = logging.getLogger(__file__)
 
 def main(args):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
-    save_dir = os.path.join("./dump/")
+    save_dir = os.path.join("../dump/")
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-
+    num_channels = 4
     dloader = get_corr_loader(
         args.foldername,
         batch_size=1,
@@ -35,10 +37,12 @@ def main(args):
         shuffle=False,
         dtype=args.dtype,
         num_rotations=20,
-        num_workers=1,
+        num_workers=2,
         markovian=True,
         augment=False,
-        background_subtract=config.BACKGROUND_SUBTRACT[args.foldername],
+        use_color = True,
+        num_channels=num_channels,
+        background_subtract=None,
     )
 
 
@@ -48,14 +52,16 @@ def main(args):
     depth_std = dloader.dataset.d_std
 
     # load model
-    model = CorrespondenceNet(2, 64, 20).to(device)
-    state_dict = torch.load(os.path.join(config.weights_dir, "matching", args.foldername + ".tar"), map_location=device)
-    model.load_state_dict(state_dict['model_state'])
+    model = CorrespondenceNet(num_channels, 64, 20).to(device)
+    # state_dict = torch.load(os.path.join(config.weights_dir, "matching", args.foldername + ".tar"), map_location=device)
+    state_dict = torch.load("matchnet/code/ml/savedmodel/coor_epoch50.pth", map_location=device)
+    model.load_state_dict(state_dict)
     model.eval()
 
     estimated_poses = []
-    for idx, (imgs, labels, center) in enumerate(dloader):
-        print("{}/{}".format(idx+1, len(dloader)))
+    correct = 0
+    for idx, (imgs, labels, center) in enumerate(tqdm(dloader)):
+        # print("{}/{}".format(idx+1, len(dloader)))
 
         imgs, labels = imgs.to(device), labels.to(device)
 
@@ -110,8 +116,8 @@ def main(args):
         obj_uvs = []
         predicted_kit_uvs = []
         rotations = []
-        correct = 0
-        for corr_idx, (u, v) in enumerate(tqdm(obj_idxs, leave=False)):
+        
+        for corr_idx, (u, v) in enumerate(obj_idxs):
             idx_flat = u*W + v
             target_descriptor = torch.index_select(out_t_flat, 1, idx_flat).squeeze(0)
             outs_s_flat = out_s.view(20, out_s.shape[1], H*W)
@@ -121,16 +127,18 @@ def main(args):
             heatmaps = l2_dist.view(l2_dist.shape[0], H, W).cpu().numpy()
             predicted_best_idx = l2_dist.min(dim=1)[0].argmin()
             rotations.append(predicted_best_idx.item())
-            if predicted_best_idx == correct_rot:
-                correct += 1
+            # if predicted_best_idx == correct_rot:
+            #     correct += 1
             min_val = heatmaps[predicted_best_idx].argmin()
             u_min, v_min = np.unravel_index(min_val, (H, W))
             predicted_kit_uvs.append([u_min.item(), v_min.item()])
             obj_uvs.append([u.item(), v.item()])
-        # print("acc: {}".format(correct / len(obj_idxs)))
+        
 
         # compute rotation majority
-        best_rot = mode(rotations)[0][0]
+        best_rot = mode(rotations,axis=None,keepdims=False)[0]
+        if best_rot == correct_rot:
+            correct += 1
 
         # eliminate correspondences with rotation different than mode
         select_idxs = np.array(rotations) == best_rot
@@ -145,13 +153,13 @@ def main(args):
         # compose transform
         zs = depth_obj[src_pts[:, 1], src_pts[:, 0]].reshape(-1, 1)
         src_xyz = np.hstack([src_pts, zs])
-        src_xyz[:, 0] = (src_xyz[:, 0] * config.HEIGHTMAP_RES) + config.VIEW_BOUNDS[0, 0]
-        src_xyz[:, 1] = (src_xyz[:, 1] * config.HEIGHTMAP_RES) + config.VIEW_BOUNDS[1, 0]
+        # src_xyz[:, 0] = (src_xyz[:, 0] * config.HEIGHTMAP_RES) + config.VIEW_BOUNDS[0, 0]
+        # src_xyz[:, 1] = (src_xyz[:, 1] * config.HEIGHTMAP_RES) + config.VIEW_BOUNDS[1, 0]
         zs = depth_kit[dst_pts[:, 1], dst_pts[:, 0]].reshape(-1, 1)
         dst_pts[:, 0] += W
         dst_xyz = np.hstack([dst_pts, zs])
-        dst_xyz[:, 0] = (dst_xyz[:, 0] * config.HEIGHTMAP_RES) + config.VIEW_BOUNDS[0, 0]
-        dst_xyz[:, 1] = (dst_xyz[:, 1] * config.HEIGHTMAP_RES) + config.VIEW_BOUNDS[1, 0]
+        # dst_xyz[:, 0] = (dst_xyz[:, 0] * config.HEIGHTMAP_RES) + config.VIEW_BOUNDS[0, 0]
+        # dst_xyz[:, 1] = (dst_xyz[:, 1] * config.HEIGHTMAP_RES) + config.VIEW_BOUNDS[1, 0]
         m1 = np.eye(4)
         dst_xyz[:, 2] = src_xyz[:, 2]
         m1[:3, 3] = np.mean(dst_xyz, axis=0) - np.mean(src_xyz, axis=0)
@@ -172,25 +180,26 @@ def main(args):
             zs = depth_obj[obj_idxs_np[:, 0], obj_idxs_np[:, 1]].reshape(-1, 1)
             mask_xyz = np.hstack([obj_idxs_np, zs])
             mask_xyz[:, [0, 1]] = mask_xyz[:, [1, 0]]
-            mask_xyz[:, 0] = (mask_xyz[:, 0] * config.HEIGHTMAP_RES) + config.VIEW_BOUNDS[0, 0]
-            mask_xyz[:, 1] = (mask_xyz[:, 1] * config.HEIGHTMAP_RES) + config.VIEW_BOUNDS[1, 0]
+            # mask_xyz[:, 0] = (mask_xyz[:, 0] * config.HEIGHTMAP_RES) + config.VIEW_BOUNDS[0, 0]
+            # mask_xyz[:, 1] = (mask_xyz[:, 1] * config.HEIGHTMAP_RES) + config.VIEW_BOUNDS[1, 0]
             mask_xyz = transform_xyz(mask_xyz, estimated_pose)
-            mask_xyz[:, 0] = (mask_xyz[:, 0] - config.VIEW_BOUNDS[0, 0]) / config.HEIGHTMAP_RES
-            mask_xyz[:, 1] = (mask_xyz[:, 1] - config.VIEW_BOUNDS[1, 0]) / config.HEIGHTMAP_RES
+            # mask_xyz[:, 0] = (mask_xyz[:, 0] - config.VIEW_BOUNDS[0, 0]) / config.HEIGHTMAP_RES
+            # mask_xyz[:, 1] = (mask_xyz[:, 1] - config.VIEW_BOUNDS[1, 0]) / config.HEIGHTMAP_RES
             hole_idxs = mask_xyz[:, [1, 0]]
             plt.imshow(img)
             plt.scatter(hole_idxs[:, 1], hole_idxs[:, 0])
             plt.show()
-
+    print("acc: {}".format(correct / len(dloader)))
     with open(os.path.join(save_dir, "{}_poses.pkl".format(args.foldername)), "wb") as fp:
         pickle.dump(estimated_poses, fp)
+    logger.warning("Save pkl at %s",os.path.join(save_dir, "{}_poses.pkl".format(args.foldername)))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate Form2Fit Matching Module on Benchmark")
-    parser.add_argument("foldername", type=str, help="The name of the dataset.")
-    parser.add_argument("dtype", type=str, default="valid")
-    parser.add_argument("--subsample", type=int, default=1)
+    parser.add_argument("--foldername", type=str, help="The name of the dataset.",default="bear")
+    parser.add_argument("--dtype", type=str, default="train")
+    parser.add_argument("--subsample", type=int, default=16)
     parser.add_argument("--debug", type=lambda s: s.lower() in ["1", "true"], default=False)
     args, unparsed = parser.parse_known_args()
     main(args)

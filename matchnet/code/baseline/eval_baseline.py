@@ -9,21 +9,66 @@ import pickle
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-
+import logging
 from tqdm import tqdm
 
 from matchnet import config
 from matchnet.code.utils.pointcloud import transform_xyz
 from matchnet.code.utils import common
-
+from tools.matrix import gen_rot_mtx_anticlockwise
 from tools.geometry.geometry import estimate_rigid_transform
+from sympy.matrices import Matrix, GramSchmidt
 
+logger = logging.getLogger(__name__)
+
+def schmit_matrix(input_matrix,orthonormal=False):
+    """orthonormal默认为False，不执行单位化操作,
+        orthonormal设为True，执行单位化操作
+    """
+    all_line = []
+    for line in input_matrix:
+        all_line.append(Matrix(line))
+    # l = [Matrix([3,2,-1]), Matrix([1,3,2]), Matrix([4,1,0])]
+    # 注意：将数据转为Matrix格式，否则调用GramSchmidt函数会报错！
+    out = GramSchmidt(all_line,orthonormal=orthonormal)
+    print(out)
+    return np.array(out)
+
+
+def cal_transfrom(label_info_dict, depth_image):
+    delta_angle = label_info_dict["delta_angle"][-1]
+    final_point = np.array(label_info_dict["final_point"][-1])
+    init_point = np.array(label_info_dict["init_point"][-1])
+    
+    du, dv = (init_point - final_point).squeeze()
+    dz = int(depth_image[init_point[0], init_point[1]]) - int(depth_image[final_point[0], init_point[1]]) #convert to signed from unsigned
+    true_transform = np.eye(4)
+    true_transform[:3,:3] = gen_rot_mtx_anticlockwise(delta_angle, isdegree=True)
+    true_transform[:3,3] = np.array([du,dv,dz])
+    # true_transform = schmit_matrix(true_transform)
+    return true_transform
+
+
+def cal_pose(label_info_dict, init, depth_image):
+    pose = np.eye(4)
+    if init:
+        delta_angle = 0
+        point_key = "init_point"
+    else:
+        delta_angle = label_info_dict["delta_angle"][-1]
+        point_key = "final_point"
+    pose[:3,:3] = gen_rot_mtx_anticlockwise(delta_angle, isdegree=True)
+    u,v = np.array(label_info_dict[point_key][-1]).squeeze()
+    z = depth_image[u,v]
+    pose[:3,3] =np.array([v,u,z])
+    # pose = schmit_matrix(pose)
+    return pose
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate ORB-PE Baseline on Benchmark")
     parser.add_argument("--debug", type=lambda s: s.lower() in ["1", "true"], default=False)
     args, unparsed = parser.parse_known_args()
-
+    use_color = False
     # instantiate ORB detector
     detector = cv2.ORB_create()
     bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
@@ -33,7 +78,8 @@ if __name__ == "__main__":
         os.makedirs(save_dir)
 
     kit_poses = {}
-    kit_dirs = glob.glob("20230108\datasets" + "/*")
+    kit_dirs = glob.glob("../datasets" + "/*")
+    kit_dirs = list(filter(lambda file_name:file_name[-4:] != ".pkl", kit_dirs))
     for kit_idx, data_dir in enumerate(kit_dirs):
         print(data_dir.split("/")[-1])
 
@@ -41,7 +87,10 @@ if __name__ == "__main__":
         test_dir = os.path.join(data_dir)
 
         train_foldernames = glob.glob(train_dir + "/*")
+        train_foldernames = list(filter(lambda file_name:file_name[-4:] != ".pkl", train_foldernames))
         test_foldernames = glob.glob(test_dir + "/*")
+        test_foldernames = list(filter(lambda file_name:file_name[-4:] != ".pkl", test_foldernames))
+        
         test_foldernames.sort(key=lambda x: int(x.split("/")[-1]))
 
         pred_poses = []
@@ -51,20 +100,27 @@ if __name__ == "__main__":
             # extr = np.loadtxt(os.path.join(data_dir, "extr.txt"))
 
             # load test color and depth heightmaps
-            color_test = common.colorload(os.path.join(test_folder, "final_color_height.png"))
-            depth_test = common.depthload(os.path.join(test_folder, "final_depth_height.png"))
+            color_test = common.colorload(test_folder, init = False,use_color=use_color)
+            depth_test = common.depthload(test_folder, init = False)
 
             # load object mask
-            obj_idxs_test = np.load(os.path.join(test_folder, "curr_object_mask.npy")).astype("int")
-            obj_mask_test = np.zeros_like(color_test)
+            # load info_dict
+            info_dict = pickle.load(open(os.path.join(test_folder, "info_dict.pkl"),"rb"))
+
+            obj_idxs_test = info_dict["obj"][-1]
+            obj_mask_test = np.zeros_like(color_test,dtype = "uint8")
             obj_mask_test[obj_idxs_test[:, 0], obj_idxs_test[:, 1]] = 1
 
-            # load initial and final object pose
-            init_pose_test = np.loadtxt(os.path.join(test_folder, "init_pose.txt"))
-            final_pose_test = np.loadtxt(os.path.join(test_folder, "final_pose.txt"))
+            # # load initial and final object pose
+            # init_pose_test = np.loadtxt(os.path.join(test_folder, "init_pose.txt"))
+            # final_pose_test = np.loadtxt(os.path.join(test_folder, "final_pose.txt"))
 
-            # compute end-effector transform
+            # # compute end-effector transform
+            init_pose_test = cal_pose(info_dict, init=True, depth_image=depth_test)
+            final_pose_test = cal_pose(info_dict, init=False, depth_image=depth_test)
             true_transform = np.linalg.inv(final_pose_test @ np.linalg.inv(init_pose_test))
+            # true_transform= cal_transfrom(info_dict,depth_test)
+            # true_transform = np.linalg.inv(true_transform)
 
             # find keypoints and descriptors for current image
             kps_test, des_test = detector.detectAndCompute(color_test, obj_mask_test)
@@ -73,9 +129,10 @@ if __name__ == "__main__":
             matches_train = []
             for i, train_folder in enumerate(train_foldernames):
                 # load train data
-                color_train = common.colorload(os.path.join(train_folder, "final_color_height.png"))
-                obj_idxs_train = np.load(os.path.join(train_folder, "curr_object_mask.npy")).astype("int")
-                obj_mask_train = np.zeros_like(color_train)
+                color_train = common.colorload(train_folder, init=False, use_color=use_color)
+                info_dict_train = pickle.load(open(os.path.join(train_folder, "info_dict.pkl"),"rb"))
+                obj_idxs_train = info_dict_train["obj"][-1]
+                obj_mask_train = np.zeros_like(color_train, dtype = "uint8")
                 obj_mask_train[obj_idxs_train[:, 0], obj_idxs_train[:, 1]] = 1
 
                 # find keypoints in train image
@@ -85,7 +142,7 @@ if __name__ == "__main__":
 
                 # brute force match
                 matches = bf.match(des_test, des_train)
-                if len(matches) < config.MIN_NUM_MATCH:
+                if len(matches) < 4:
                     continue
                 matches_train.append([i, matches])
 
@@ -100,13 +157,17 @@ if __name__ == "__main__":
             # retrieve top match image from database
             idx = matches_train[0][0]
             matches = matches_train[0][1]
-            color_train = common.colorload(os.path.join(train_foldernames[idx], "final_color_height.png"))
-            depth_train = common.depthload(os.path.join(train_foldernames[idx], "final_depth_height.png"))
-            obj_idxs_train = np.load(os.path.join(train_foldernames[idx], "curr_object_mask.npy")).astype("int")
-            obj_mask_train = np.zeros_like(color_train)
+            color_train = common.colorload(train_foldernames[idx], init = False,use_color=use_color)
+            depth_train = common.depthload(train_foldernames[idx], init = False,)
+
+            info_dict_train = pickle.load(open(os.path.join(train_foldernames[idx], "info_dict.pkl"),"rb"))
+            obj_idxs_train = info_dict_train["obj"][-1]
+            obj_mask_train = np.zeros_like(color_train, dtype="uint8")
             obj_mask_train[obj_idxs_train[:, 0], obj_idxs_train[:, 1]] = 1
-            init_pose_train = np.loadtxt(os.path.join(train_foldernames[idx], "init_pose.txt"))
-            final_pose_train = np.loadtxt(os.path.join(train_foldernames[idx], "final_pose.txt"))
+            # init_pose_train = np.loadtxt(os.path.join(train_foldernames[idx], "init_pose.txt"))
+            # final_pose_train = np.loadtxt(os.path.join(train_foldernames[idx], "final_pose.txt"))
+            init_pose_train = cal_pose(info_dict_train, init=True, depth_image=depth_train)
+            final_pose_train = cal_pose(info_dict_train, init=False, depth_image=depth_train)
             transform_train = np.linalg.inv(final_pose_train @ np.linalg.inv(init_pose_train))
             kps_train, des_train = detector.detectAndCompute(color_train, obj_mask_train)
 
@@ -168,3 +229,4 @@ if __name__ == "__main__":
 
     with open(os.path.join(save_dir, "ORB-PE_poses.pkl"), "wb") as fp:
         pickle.dump(kit_poses, fp)
+    logger.warning("Save pkl at %s",os.path.join(save_dir, "ORB-PE_poses.pkl"))
