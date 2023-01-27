@@ -54,8 +54,8 @@ def main(args):
     # load model
     model = CorrespondenceNet(num_channels, 64, 20).to(device)
     # state_dict = torch.load(os.path.join(config.weights_dir, "matching", args.foldername + ".tar"), map_location=device)
-    state_dict = torch.load("matchnet/code/ml/savedmodel/coor_epoch50.pth", map_location=device)
-    model.load_state_dict(state_dict)
+    state_dict = torch.load("matchnet/code/ml/savedmodel/0127/corr_epoch99.pth", map_location=device)
+    model.load_state_dict(state_dict["model"])
     model.eval()
 
     estimated_poses = []
