@@ -29,7 +29,7 @@ if not os.path.exists(tb_path):
         os.makedirs(tb_path)
 writer = SummaryWriter(tb_path)
 logger= logging.getLogger(__file__)
-def save_ckpt(savepath,epoch,model,optimizer,scheduler):
+def save_ckpt(savepath,net_type,epoch,model,optimizer,scheduler):
     if not os.path.exists(savepath):
         os.makedirs(savepath)
     checkpoint = {
@@ -39,9 +39,9 @@ def save_ckpt(savepath,epoch,model,optimizer,scheduler):
     'scheduler': scheduler.state_dict(),
         }
     if (epoch + 1) % 5 == 0:
-        savedpath = savepath + 'corr_epoch' + str(epoch) + '.pth'
+        savedpath = os.path.join(savepath,net_type+'_epoch' + str(epoch) + '.pth')
         torch.save(checkpoint, savedpath)
-    savedpath = savepath + 'corr_last_epoch' + '.pth'
+    savedpath = os.path.join(savepath,net_type +'last_epoch.pth')
     torch.save(checkpoint, savedpath)
 
 def set_seed(set_benchmark:bool):
@@ -82,7 +82,6 @@ if __name__ == "__main__":
     use_color = True
     num_channels = 4
     sample_ratio = opt.sample_ratio
-    radius = 1
     
     set_seed(True)
 
@@ -112,7 +111,7 @@ if __name__ == "__main__":
         optimizer.load_state_dict(state_dict["optimizer"])
         scheduler.load_state_dict(state_dict["scheduler"])
     # valid_loss = []
-    train_epochs_loss = []
+    # train_epochs_loss = []
     # valid_epochs_loss = []
     one_epoch_step = len(train_loader)
     for epoch in tqdm(range(start_epoch +1, epochs)):
@@ -146,5 +145,5 @@ if __name__ == "__main__":
         scheduler.step()
         writer.add_scalar("loss/epoch", np.mean(train_epoch_loss), global_step=epoch, walltime=None)
 
-        save_ckpt(savepath,epoch, model,optimizer,scheduler)
+        save_ckpt(savepath,"corrs",epoch, model,optimizer,scheduler)
     writer.close()

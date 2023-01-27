@@ -69,8 +69,8 @@ class SuctionLoss(BaseLoss):
         if add_dice_loss:
             label_spatial = pixel2spatial(label, out.shape[2], out.shape[3])
             dice_loss = compute_dice_loss(label_spatial, out)
-            loss = loss + (5 * dice_loss)
-
+            # loss = loss + (5 * dice_loss)
+            return loss, dice_loss
         return loss
 
 
