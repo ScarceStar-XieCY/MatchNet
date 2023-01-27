@@ -44,7 +44,7 @@ class CorrespondenceNet(BaseModel):
         # split input tensor into source and target tensors
         xs, xt = x[:, :self.num_channels, :, :], x[:, self.num_channels:, :, :]
 
-        xs = xs.detach().cpu().numpy().squeeze()
+        xs = xs.detach().cpu().numpy().squeeze() #(2,4,240,212)
 
         # apply `num_rotations` to source tensors
         all_rotate = []

@@ -191,8 +191,8 @@ class CorrespondenceLoss(BaseLoss):
         non_match_loss = self._negative_corrs(outs_s, outs_t, labels)
         if self.sample_ratio is not None:
             assert not np.isclose(self.sample_ratio, 0.0), "[!] Sample ratio cannot be zero."
-            loss = (self.sample_ratio * match_loss) + non_match_loss
-        return loss
+            # loss = (self.sample_ratio * match_loss) + non_match_loss
+        return match_loss, non_match_loss
 
 
 class TripletLoss(BaseLoss):
