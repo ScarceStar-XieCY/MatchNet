@@ -165,47 +165,51 @@ def label_one_image(dict_list, on_mouse_param):
             logger.warning("No enough angle. %s", angle_list)
         
 
+def get_half_diff_mask(in_kit_img,out_kit_img,left_half:bool, visual:bool,):
+    """Half"""
+    if left_half:
+        img_intre = out_kit_img
+        img_ref = in_kit_img
+    else:
+        img_intre = in_kit_img
+        img_ref = out_kit_img
+    diff_img = cv2.subtract(img_ref, img_intre)
+    if diff_img.max() < 128:
+        diff_img = np.where(diff_img > 10, 255 - diff_img, diff_img)
+    diff_gray = cv2.cvtColor(diff_img, cv2.COLOR_BGR2GRAY)
+    # diff_gray = cv2.blur(diff_gray,(5,5)) 
+    diff_gray[diff_gray < 10] = 0
+    # if visual:
+    #     cv2.imshow("diff_gray", diff_gray.astype("uint8"))
+    #     cv2.waitKey()
+    dthresh, diff_mask = cv2.threshold(diff_gray, 0,255,cv2.THRESH_BINARY,cv2.THRESH_OTSU)
+    # diff_mask = open_morph(diff_mask,3,2)
+    diff_mask = erode(diff_mask,3,3)
+    if visual:
+        cv2.imshow("diff_erode", diff_mask)
+    diff_mask = get_half_centroid_mask(diff_mask, left_half,0,visual)
+    # grabcut to confim color domain
+    center_coord = get_mask_center(diff_mask,False,False)
+    diff_mask = remain_largest_area(diff_mask, visual,"")
+    # diff_mask = np.zeros_like(diff_mask, dtype= "uint8")
+    # draw_point_on_img(diff_mask,center_coord, 255)
+    
+    # if visual:
+        # cv2.imshow("diff_erode", diff_mask)
+    grabcut_mask = grabcut_get_mask(img_intre,diff_mask,"hsv",visual,sure_point = center_coord, use_roi = False)
+    # diff_mask = remove_surrounding_white(diff_mask,False)
+    # diff_mask = remove_scattered_pix(diff_mask,5,True)
+    diff_mask = remove_small_area(diff_mask, 40,False,"remove small")
+    diff_mask = get_avaliable_part(grabcut_mask, diff_mask,False)
+    return diff_mask
+
 def _diff_mask(in_kit_img,out_kit_img,visual,kit_name):
     """Get diff mask list (left, right) for label."""
     diff_mask_list = []
     choose_left_half = [True, False]
     for left_half in choose_left_half:
-        if left_half:
-            img_intre = out_kit_img
-            img_ref = in_kit_img
-        else:
-            img_intre = in_kit_img
-            img_ref = out_kit_img
-        diff_img = cv2.subtract(img_ref, img_intre)
-        if diff_img.max() < 128:
-            diff_img = np.where(diff_img > 10, 255 - diff_img, diff_img)
-        diff_gray = cv2.cvtColor(diff_img, cv2.COLOR_BGR2GRAY)
-        # diff_gray = cv2.blur(diff_gray,(5,5)) 
-        diff_gray[diff_gray < 10] = 0
-        # if visual:
-        #     cv2.imshow("diff_gray", diff_gray.astype("uint8"))
-        #     cv2.waitKey()
-        dthresh, diff_mask = cv2.threshold(diff_gray, 0,255,cv2.THRESH_BINARY,cv2.THRESH_OTSU)
-        # diff_mask = open_morph(diff_mask,3,2)
-        diff_mask = erode(diff_mask,3,3)
-        if visual:
-            cv2.imshow("diff_open", diff_mask)
-        diff_mask = get_half_centroid_mask(diff_mask, left_half,0,visual)
-        # grabcut to confim color domain
-        center_coord = get_mask_center(diff_mask,False,False)
+        get_half_diff_mask(in_kit_img,out_kit_img,left_half,visual,)
         diff_mask = remain_largest_area(diff_mask, visual,"")
-        # diff_mask = np.zeros_like(diff_mask, dtype= "uint8")
-        # draw_point_on_img(diff_mask,center_coord, 255)
-        
-        # if visual:
-            # cv2.imshow("diff_erode", diff_mask)
-        grabcut_mask = grabcut_get_mask(img_intre,diff_mask,"hsv",visual,sure_point = center_coord, use_roi = False)
-        # diff_mask = remove_surrounding_white(diff_mask,False)
-        # diff_mask = remove_scattered_pix(diff_mask,5,True)
-        diff_mask = remove_small_area(diff_mask, 40,False,"remove small")
-        diff_mask = get_avaliable_part(grabcut_mask, diff_mask,False)
-        diff_mask = remain_largest_area(diff_mask, visual,"")
-        # diff_mask = remove_small_area(diff_mask, 100, False, "")
         
         # cv2.waitKey()
         diff_mask_list.append(diff_mask)
