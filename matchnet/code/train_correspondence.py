@@ -60,7 +60,7 @@ if __name__ == "__main__":
     parser.add_argument("--batchsize", type=int, default=1, help="The batchsize of the dataset.")
     parser.add_argument("--sample_ratio", type=int, default=5, help="The ratio of negative to positive labels.")
     parser.add_argument("--epochs", type=int, default=200, help="The number of training epochs.")
-    parser.add_argument("--augment","-a", action='store_true', help="(bool) Whether to apply data augmentation.")
+    parser.add_argument("--augment","-a", action='store_true', help="(bool) Whether to apply data augmentation.",default=True)
     parser.add_argument("--background_subtract", type=tuple, default=None, help="apply mask.")
     parser.add_argument("--dtype", type=str, default="valid")
     parser.add_argument("--imgsize", type=list, default=[848,480], help="size of final image.")
@@ -102,8 +102,8 @@ if __name__ == "__main__":
 
     model = CorrespondenceNet(num_channels=num_channels, num_descriptor=64, num_rotations=20).to(device)
     criterion = losses.CorrespondenceLoss(sample_ratio=sample_ratio, device=device, margin=8, num_rotations=20, hard_negative=True)
-    optimizer = torch.optim.Adam(model.parameters(),lr=1e-4) # 1e-3
-    scheduler = StepLR(optimizer, step_size=40, gamma=0.5) # gamma=0.1
+    optimizer = torch.optim.Adam(model.parameters(),lr=1e-3) # 1e-3
+    scheduler = StepLR(optimizer, step_size=40, gamma=0.1) # gamma=0.1
     start_epoch = -1
     if opt.resume:
         state_dict = torch.load(opt.checkpoint, map_location=device)
