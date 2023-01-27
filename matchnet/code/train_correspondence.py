@@ -41,7 +41,7 @@ def save_ckpt(savepath,net_type,epoch,model,optimizer,scheduler):
     if (epoch + 1) % 5 == 0:
         savedpath = os.path.join(savepath,net_type+'_epoch' + str(epoch) + '.pth')
         torch.save(checkpoint, savedpath)
-    savedpath = os.path.join(savepath,net_type +'last_epoch.pth')
+    savedpath = os.path.join(savepath,net_type +'_last_epoch.pth')
     torch.save(checkpoint, savedpath)
 
 def set_seed(set_benchmark:bool):
@@ -59,15 +59,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Form2Fit suction Module")
     parser.add_argument("--batchsize", type=int, default=1, help="The batchsize of the dataset.")
     parser.add_argument("--sample_ratio", type=int, default=5, help="The ratio of negative to positive labels.")
-    parser.add_argument("--epochs", type=int, default=100, help="The number of training epochs.")
+    parser.add_argument("--epochs", type=int, default=200, help="The number of training epochs.")
     parser.add_argument("--augment","-a", action='store_true', help="(bool) Whether to apply data augmentation.")
     parser.add_argument("--background_subtract", type=tuple, default=None, help="apply mask.")
     parser.add_argument("--dtype", type=str, default="valid")
     parser.add_argument("--imgsize", type=list, default=[848,480], help="size of final image.")
     parser.add_argument("--root", type=str, default="", help="the path of dataset")
     parser.add_argument("--savepath", type=str, default="matchnet/code/ml/savedmodel/0127/", help="the path of saved models")
-    parser.add_argument("--resume","-r",  action='store_true', help="whether to resume")
-    parser.add_argument("--checkpoint","-c",  type=str, default="matchnet/code/ml/savedmodel/corr_final.pth", help="the path of resume models")
+    parser.add_argument("--resume","-r",  action='store_true', help="whether to resume",default=True)
+    parser.add_argument("--checkpoint","-c",  type=str, default="matchnet/code/ml/savedmodel/0127/corr_epoch99.pth", help="the path of resume models")
     opt = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -97,12 +97,13 @@ if __name__ == "__main__":
                                         sample_ratio=sample_ratio, 
                                         augment=True if opt.augment else False,
                                         shuffle=True,
+                                        num_workers=8,
                                         background_subtract=background_subtract)
 
     model = CorrespondenceNet(num_channels=num_channels, num_descriptor=64, num_rotations=20).to(device)
     criterion = losses.CorrespondenceLoss(sample_ratio=sample_ratio, device=device, margin=8, num_rotations=20, hard_negative=True)
-    optimizer = torch.optim.Adam(model.parameters(),lr=1e-3)
-    scheduler = StepLR(optimizer, step_size=40, gamma=0.1)
+    optimizer = torch.optim.Adam(model.parameters(),lr=1e-4) # 1e-3
+    scheduler = StepLR(optimizer, step_size=40, gamma=0.5) # gamma=0.1
     start_epoch = -1
     if opt.resume:
         state_dict = torch.load(opt.checkpoint, map_location=device)
@@ -113,6 +114,7 @@ if __name__ == "__main__":
     # valid_loss = []
     # train_epochs_loss = []
     # valid_epochs_loss = []
+    logger.warning("train from %s epoch, ckpt = %s",start_epoch, opt.checkpoint)
     one_epoch_step = len(train_loader)
     for epoch in tqdm(range(start_epoch +1, epochs)):
         model.train()
