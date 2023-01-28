@@ -14,6 +14,7 @@ sys.path.append(os.getcwd())
 from matchnet.code.ml.dataloader import get_corr_loader
 from matchnet.code.ml.models.correspondence import CorrespondenceNet
 from matchnet.code.ml import losses
+from matchnet.code.eval_form2fit import validation_correspondence
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -104,6 +105,7 @@ if __name__ == "__main__":
             #print("epoch={}/{},{}/{}of train, loss={}".format(epoch, opt.epochs, i, len(train_loader),loss.item()))
             print("epoch = {}/{}, {}/{} of train, loss = {}".format(epoch, opt.epochs, i, len(train_loader),loss.item()))
         train_epochs_loss.append(np.average(train_epoch_loss))
+        rot_ap, rot_acc = validation_correspondence(valid_loader, model, device, 1)
 
         if ((epoch + 1) % 5 == 0 and epoch != 0) or (epoch < 155 and epoch > 145):                            # 选择输出的epoch
             print("---------saving model for epoch {}----------".format(epoch))
