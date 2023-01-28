@@ -26,7 +26,7 @@ from tqdm import tqdm
 import logging
 
 SEED=666
-tb_path = './tb_log_corres_mix0128_2'
+tb_path = './tb_log_corres_mix0128_3'
 if not os.path.exists(tb_path):
         os.makedirs(tb_path)
 writer = SummaryWriter(tb_path)
@@ -42,7 +42,7 @@ def save_ckpt(savepath,net_type,epoch,model,optimizer,scheduler):
     'optimizer': optimizer.state_dict(),
     'scheduler': scheduler.state_dict(),
         }
-    if (epoch + 1) % 5 == 0:
+    if (epoch + 1) % 20 == 0:
         savedpath = os.path.join(savepath,net_type+'_epoch' + str(epoch) + '.pth')
         torch.save(checkpoint, savedpath)
     savedpath = os.path.join(savepath,net_type +'_last_epoch.pth')
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     parser.add_argument("--dtype", type=str, default="valid")
     parser.add_argument("--imgsize", type=list, default=[848,480], help="size of final image.")
     parser.add_argument("--root", type=str, default="", help="the path of dataset")
-    parser.add_argument("--savepath", type=str, default="matchnet/code/ml/savedmodel/mix0128_2/", help="the path of saved models")
+    parser.add_argument("--savepath", type=str, default="matchnet/code/ml/savedmodel/mix0128_3/", help="the path of saved models")
     parser.add_argument("--resume","-r",  action='store_true', help="whether to resume",default=True)
     parser.add_argument("--checkpoint","-c",  type=str, default="matchnet/code/ml/savedmodel/mix0128/corrs_epoch34.pth", help="the path of resume models")
     opt = parser.parse_args()
@@ -112,14 +112,14 @@ if __name__ == "__main__":
     model = CorrespondenceNet(num_channels=num_channels, num_descriptor=64, num_rotations=20).to(device)
     criterion = losses.CorrespondenceLoss(sample_ratio=sample_ratio, device=device, margin=8, num_rotations=20, hard_negative=True)
     optimizer = torch.optim.Adam(model.parameters(),lr=1e-3) # 1e-3
-    scheduler = StepLR(optimizer, step_size=80, gamma=0.5) # gamma=0.1
+    scheduler = StepLR(optimizer, step_size=200, gamma=0.5) # gamma=0.1
     start_epoch = -1
     if opt.resume:
         state_dict = torch.load(opt.checkpoint, map_location=device)
         model.load_state_dict(state_dict["model"])
         start_epoch = state_dict["epoch"]
         optimizer.load_state_dict(state_dict["optimizer"])
-        state_dict["scheduler"]["step_size"] = 80
+        state_dict["scheduler"]["step_size"] = 200
         state_dict["scheduler"]["gamma"] = 0.5
         scheduler.load_state_dict(state_dict["scheduler"])
     # valid_loss = []
