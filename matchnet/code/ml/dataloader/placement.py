@@ -376,7 +376,7 @@ def get_placement_loader(
         return [imgs, labels]
 
     num_workers = min(num_workers, multiprocessing.cpu_count())
-    root = os.path.join("..","datasets",foldername)
+    root = os.path.join(foldername, dtype)
 
     dataset = PlacementDataset(
         root,

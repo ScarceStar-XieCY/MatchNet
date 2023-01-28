@@ -20,7 +20,7 @@ from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
 import logging
 
-tb_path = './tb_log_place'
+tb_path = './tb_log_debug'
 if not os.path.exists(tb_path):
         os.makedirs(tb_path)
 writer = SummaryWriter(tb_path)
@@ -46,9 +46,8 @@ if __name__ == "__main__":
 
     batch_size = opt.batchsize
     epochs = opt.epochs
-    kit_name = "bear"
+    dataset_name = "../datasets_mix0128"
     savepath = opt.savepath
-    testroot = "dataset/test"
     background_subtract = opt.background_subtract
     use_color = True
     num_channels = 4
@@ -58,9 +57,10 @@ if __name__ == "__main__":
 
     print("--------------start preparing data--------------")
     
+    set_seed(True)
 
-    train_loader = get_placement_loader(kit_name, 
-                                        dtype="test", 
+    train_loader = get_placement_loader(dataset_name, 
+                                        dtype="train", 
                                         batch_size=batch_size, 
                                         use_color = use_color,
                                         num_channels=num_channels, 
