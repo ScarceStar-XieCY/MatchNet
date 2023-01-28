@@ -102,7 +102,7 @@ def validation_correspondence(dloader,model,device, num_subsample=None):
             rot_correct += 1
         
     acc = rot_correct / len(dloader)
-    ap = np.mean(prec)
+    ap = np.mean(prec_list)
     return ap, acc
 
 

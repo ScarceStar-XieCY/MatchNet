@@ -107,7 +107,8 @@ class CorrespondenceLoss(BaseLoss):
     def _positive_corrs(self, outs_s, outs_t, labels):
         """Computes match loss.
         """
-        batch_size = len(labels)
+        # TODO：debug to see shape
+        batch_size = len(labels) # 21?
         match_loss = zero_loss(self._device)
         for b_idx, label in enumerate(labels):
             mask = torch.all(label == torch.LongTensor([999]).repeat(6).to(self._device), dim=1)
@@ -127,6 +128,7 @@ class CorrespondenceLoss(BaseLoss):
             s_idxs_f = s_idxs[:, 0] * W + s_idxs[:, 1]
             t_idxs_f = t_idxs[:, 0] * W + t_idxs[:, 1]
             out_s_flat = out_s[correct_rot_idx:correct_rot_idx+1].view(1, D, H*W).permute(0, 2, 1)
+            # select two desc
             match_s_descriptors = torch.index_select(out_s_flat, 1, s_idxs_f).squeeze(0)
             match_t_descriptors = torch.index_select(out_t_flat, 1, t_idxs_f).squeeze(0)
             match_loss += self._sq_l2(match_s_descriptors, match_t_descriptors)
@@ -152,15 +154,17 @@ class CorrespondenceLoss(BaseLoss):
             non_match_s_descriptors = []
             non_match_t_descriptors = []
             for r_idx in range(self.num_rotations):
-                mask = (is_match != 1) & (rot_idx == r_idx)
+                mask = (is_match != 1) & (rot_idx == r_idx) # no match
                 s_idxs = source_idxs[mask]
                 t_idxs = target_idxs[mask]
                 s_idxs_f = s_idxs[:, 0] * W + s_idxs[:, 1]
                 t_idxs_f = t_idxs[:, 0] * W + t_idxs[:, 1]
                 out_s_flat = out_s[r_idx : r_idx + 1].view(1, D, H*W).permute(0, 2, 1)
+                # select decs for each rotation
                 non_match_s_descriptors.append(torch.index_select(out_s_flat, 1, s_idxs_f).squeeze(0))
                 non_match_t_descriptors.append(torch.index_select(out_t_flat, 1, t_idxs_f).squeeze(0))
             if self._hard_neg:
+                # means select all dim that has loss,and and use these dim to cal sq_hinge_loss, will cause loss increase 
                 for des_s, des_t in zip(non_match_s_descriptors, non_match_t_descriptors):
                     with torch.no_grad():
                         loss = self._sq_hinge_loss(des_s, des_t, False)
