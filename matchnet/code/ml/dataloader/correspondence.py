@@ -96,7 +96,7 @@ class CorrespondenceDataset(Dataset):
         """Returns a list of filenames to process.
         """
         self._filenames = glob.glob(os.path.join(self._root, "*/"))
-        self._filenames.sort(key=lambda x: int(x.split("/")[-2]))
+        # self._filenames.sort(key=lambda x: int(x.split("/")[-2]))
 
     def _load_state(self, name):
         # load visual
@@ -638,7 +638,7 @@ def get_corr_loader(
     background_subtract=None,
     use_color = True,
     num_channels=2,
-    num_workers=0,
+    num_workers=8,
 ):
     """Returns a dataloader over the correspondence dataset.
 
@@ -686,7 +686,7 @@ def get_corr_loader(
         return [imgs, labels, centers]
 
     num_workers = min(num_workers, multiprocessing.cpu_count())
-    root = os.path.join("..","datasets",foldername)
+    root = os.path.join(foldername,dtype)
 
     dataset = CorrespondenceDataset(
         root,

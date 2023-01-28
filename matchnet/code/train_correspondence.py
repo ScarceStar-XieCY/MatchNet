@@ -37,9 +37,8 @@ if __name__ == "__main__":
 
     batch_size = opt.batchsize
     epochs = opt.epochs
-    kit_name = "bear"
+    dataset_name = "../datasets_mix0128"
     savepath = opt.savepath
-    testroot = "dataset/test"
     background_subtract = opt.background_subtract
     use_color = True
     num_channels = 4
@@ -50,7 +49,7 @@ if __name__ == "__main__":
     print("--------------start preparing data--------------")
     
     
-    train_loader = get_corr_loader(kit_name, 
+    train_loader = get_corr_loader(dataset_name, 
                                         dtype="train", 
                                         batch_size=batch_size, 
                                         use_color = use_color,
@@ -67,6 +66,19 @@ if __name__ == "__main__":
     valid_loss = []
     train_epochs_loss = []
     valid_epochs_loss = []
+    
+    valid_loader = get_corr_loader(dataset_name, 
+                                    dtype="valid", 
+                                    batch_size=1, 
+                                    use_color = use_color,
+                                    num_channels=num_channels, 
+                                    sample_ratio=1, 
+                                    augment=False,
+                                    shuffle=False,
+                                    background_subtract=None,
+                                    use_color = True,
+                                    num_channels = 4,
+                                    num_worker = 8)
 
     print("----------------start training-----------------")
     t0 = time.time()
