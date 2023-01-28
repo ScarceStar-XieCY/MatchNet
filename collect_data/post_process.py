@@ -10,8 +10,8 @@ import logging
 import pickle
 logger = logging.getLogger(__name__)
 
-KIT_PIECE = {"bear":6}
-DICT_NAME_LIST = ["angle","obj_mask","corres_mask","center","kit_mask"]
+KIT_PIECE = {"bear":6,"bug":4,"bug_rev":4,"butterfly":5, "butterfly_rev":5,"rabbit":4,"whale":5,"car":7,"paint":1,}
+DICT_NAME_LIST = ["angle","obj_mask","corres_mask","center","kit_mask",]
 
 def dump_images(load_dir_name,file_list, img_idx, dump_dir, time_step_index):
     """"""
@@ -102,7 +102,7 @@ def update_dump_info_dict(dict_list, load_key, info_dict, dump_dir):
 
 
 if __name__ == "__main__":
-    skip_kit = ["bee","bee_rev"]
+    skip_kit = ["bear","bee","bee_rev","butterfly","column","circle_square","bug","math","snail","snail_rev"]
     dir_path = os.path.join("20230108","16_kit_color")
     dump_path = os.path.join("20230108","datasets")
     dict_list = load_info_dict(DICT_NAME_LIST, dir_path)

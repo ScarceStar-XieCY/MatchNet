@@ -12,7 +12,7 @@ from tools.image_mask.mask_process import get_mask_center,get_half_centroid_mask
 from tools.image_mask.image_process import grabcut_get_mask,put_mask_on_img
 from tools.manager.log_manager import LOGGING_CONFIG
 from tools.matrix import rigid_trans_mask_around_point, reverse_get_corres
-
+from tools.interact.set_contour import draw_poly
 logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger("console_logger")
 
@@ -89,6 +89,10 @@ def update_corres_mask(image_path, obj_mask_dict, corres_dict,center_dict, delta
     
     # the correspond coord to cavity in the left obj mask
     cavity_reverse_coord= reverse_get_corres(cavity_coord, delta_angle, center_out_kit[::-1], center_in_kit[::-1], is_degree=is_degree) 
+
+    valid_mask = (cavity_reverse_coord[:,0] >= 0 ) & (cavity_reverse_coord[:,1] >= 0) & (cavity_reverse_coord[:,0] < h) & (cavity_reverse_coord[:,1] < w)
+    cavity_reverse_coord = cavity_reverse_coord[valid_mask]   
+    
     # cancatenace cavity corresponding coord in obj in& out of kit respectly.
     obj_complete_coord_in_kit = np.concatenate([obj_corres_in_kit_coord, cavity_coord], axis = 0)
     obj_corrs_coord_out_kit = np.concatenate([mask2coord(obj_out_kit_mask,need_xy=False),cavity_reverse_coord], axis = 0)
@@ -97,10 +101,11 @@ def update_corres_mask(image_path, obj_mask_dict, corres_dict,center_dict, delta
     corres_dict[image_path] = [obj_corrs_coord_out_kit, obj_complete_coord_in_kit] # left right
     
 
-def draw_corres_mask(image_path, corres_dict, h,w, image):
+def draw_corres_mask(image_path, corres_dict, image):
     if corres_dict.get(image_path,None) is None:
         cv2.imshow("put corres mask mask on img", image)
         return
+    h, w = image.shape[:2]
     mask1_corrd, mask2_coord = corres_dict[image_path]
     mask1 = coord2mask(mask1_corrd,h,w,False)
     mask2 = coord2mask(mask2_coord,h,w,False)
@@ -128,7 +133,7 @@ def window_react(event,x,y,flags,param):
         delta_angle = update_delta_angle(angle_list, angle_dict, image_path)
         text_delta_angle(image_path, angle_dict, img)
         update_corres_mask(image_path, obj_mask_dict, corres_dict,center_dict, delta_angle,is_degree=True)
-        draw_corres_mask(image_path, corres_dict, h,w, image) # will show corres mask window
+        draw_corres_mask(image_path, corres_dict, image) # will show corres mask window
         cv2.imshow(window_name, img)
 
 
@@ -165,7 +170,9 @@ def label_one_image(dict_list, on_mouse_param):
             logger.warning("No enough angle. %s", angle_list)
         
 
-def _diff_mask(in_kit_img,out_kit_img,visual,kit_name):
+
+
+def get_diff_mask(in_kit_img,out_kit_img,visual,kit_name):
     """Get diff mask list (left, right) for label."""
     diff_mask_list = []
     choose_left_half = [True, False]
@@ -212,15 +219,22 @@ def _diff_mask(in_kit_img,out_kit_img,visual,kit_name):
 
     return diff_mask_list
 
-def load_info_dict(dict_name_list, dir_path):
+def load_info_dict(dict_name_list, dir_path, to_dict=False):
     dict_list = []
+    info_dict ={}
     for dict_name in dict_name_list:
-        dict_dump_path = os.path.join(dir_path, dict_name + DICT_SUFFIX)
+        dict_name_suffix = dict_name + DICT_SUFFIX
+        dict_dump_path = os.path.join(dir_path, dict_name_suffix)
         if os.path.exists(dict_dump_path):
             dict_con = pickle.load(open(dict_dump_path,"rb"))
         else:
             dict_con = {}
-        dict_list.append(dict_con)
+        if to_dict:
+            info_dict[dict_name_suffix] = dict_name
+        else:
+            dict_list.append(dict_con)
+    if to_dict:
+        return info_dict
     return dict_list
 
 def dump_info_dict(dict_name_list, dict_list, dir_path):
@@ -251,13 +265,13 @@ if __name__ == "__main__":
     angle_dict, obj_mask_dict, corres_dict, center_dict = dict_list
 
     window_name = "angle_label"
-    skip_kit = ["bee","bee_rev"]
+    skip_kit = ["bear","bee","bee_rev","bug","bug_rev","butterfly","butterfly_rev","car","circle_square","column","math","paint"]
     for root_dir_name, dir_list, file_list in os.walk(dir_path):
         ret_status = None
         if os.path.basename(root_dir_name) in skip_kit:
             continue
         file_list = filter_sort_image(file_list)
-        for img_idx in range(1,len(file_list)):
+        for img_idx in range(0,len(file_list)):
             # read cur and pre image
             cur_image_path = os.path.join(root_dir_name, file_list[img_idx])
             pre_image_path = os.path.join(root_dir_name,file_list[img_idx - 1])
@@ -269,14 +283,14 @@ if __name__ == "__main__":
             angle_list = []
             # get diff and calculate mask 
             try:
-                diff_mask_list = _diff_mask(pre_image, cur_image,visual = False, kit_name = os.path.basename(root_dir_name))
+                diff_mask_list = get_diff_mask(pre_image, cur_image,visual = False, kit_name = os.path.basename(root_dir_name))
                 center_list = []
                 for diff_mask in diff_mask_list:
                     center_coord = get_mask_center(diff_mask,multi_center=False,uv_coord = False)
                     center_list.append(center_coord)
                 draw_points_on_img(cur_image,center_list,(255,0,255)) # purple
             except Exception:
-                logger.warning("Can't get valid mask info. Skip. %s",cur_image_path)
+                logger.exception("Can't get valid mask info. Skip. %s",cur_image_path)
                 continue
             
             obj_mask_dict[cur_image_path] = diff_mask_list # left and right obj mask
@@ -286,7 +300,7 @@ if __name__ == "__main__":
             param = [show_image, window_name, pt_list, angle_list, cur_image_path]
             put_mask_on_img(get_union(diff_mask_list[0],diff_mask_list[1],False,"diff mask"), cur_image.copy(),True,"")
             h, w = diff_mask_list[0].shape[:2]
-            draw_corres_mask(cur_image_path, corres_dict, h,w, show_image)
+            draw_corres_mask(cur_image_path, corres_dict, show_image)
             ret_status = label_one_image(dict_list, param)
 
             if ret_status == 1:

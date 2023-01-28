@@ -312,7 +312,7 @@ def get_centroid(cnt):
         return -1,-1
     cx = int(M["m10"] / M["m00"])
     cy = int(M["m01"] / M["m00"])
-    return cx,cy
+    return np.array([cx,cy])
 
 
 def get_exter_contours(mask, method = 'none'):
@@ -542,22 +542,31 @@ def apply_mask_to_img(mask,imgs,color2gray,visual, mask_info):
         return img
 
 
-def put_mask_on_img(mask, imgs, visual, mask_info):
+def put_mask_on_img(mask, imgs, visual, mask_info,color=(0,0,255)):
     '''
     把半透明的红色mask覆盖在img_list中的所有图像上并（在visual=True时）显示
     :param mask: 二维的二值mask
     :param imgs: 所有图片,可以是单张图片或图片列表
     :param visual: 是否可视化
     :param mask_info:mask相关信息,用以生成不同的mask窗口
+    :param color: bgr通道的颜色，默认只对bgr的r通道赋值,也就是给vis涂上红色
     :return: mask覆盖在图像上的三通道图像或图像列表
     '''
-    mask_vis = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+    def set_mask_vis_color(mask, color):
+        mask_vis = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+        for channel, color_value in enumerate(color):
+            if color_value == 0:
+                continue
+            mask_vis[:,:, channel] = np.where(mask, color_value, 0)
+        return mask_vis
+
+    
     if isinstance(imgs, list):
         put_list = []
         for i, img in enumerate(imgs):
             if is_grayscale(img):
                 img = cv2.cvtColor(img,cv2.COLOR_GRAY2BGR)
-            mask_vis[:, :, 2] = np.where(mask, 255, 0)#只对bgr的r通道赋值,也就是给vis涂上红色
+            mask_vis = set_mask_vis_color(mask, color)#只对bgr的r通道赋值,也就是给vis涂上红色
             mask_on_img = cv2.addWeighted(img, 0.5, mask_vis, 0.5, 0)
             put_list.append(mask_on_img)
             if visual:
@@ -566,7 +575,7 @@ def put_mask_on_img(mask, imgs, visual, mask_info):
     else:
         if is_grayscale(imgs):
             imgs = cv2.cvtColor(imgs, cv2.COLOR_GRAY2BGR)
-        mask_vis[:, :, 2] = np.where(mask, 255, 0)#只对bgr的r通道赋值,也就是给vis涂上红色
+        mask_vis = set_mask_vis_color(mask, color)
         mask_on_img = cv2.addWeighted(imgs, 1, mask_vis, 0.5, 0)
         if visual:
             cv2.imshow('put {} mask on img'.format(mask_info), mask_on_img)
