@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 KIT_PIECE = {"bear":6,"bug":4,"bug_rev":4,"butterfly":5, "butterfly_rev":5,"rabbit":4,"whale":5,"car":7,"paint":1,}
 DICT_NAME_LIST = ["angle","obj_mask","corres_mask","center","kit_mask",]
 
-def dump_images(load_dir_name,file_list, img_idx, dump_dir, time_step_index):
+def dump_images(load_dir_name,file_list, img_idx, dump_dir):
     """"""
     cur_image_path = os.path.join(load_dir_name, file_list[img_idx])
     pre_image_path = os.path.join(load_dir_name, file_list[img_idx - 1])
@@ -29,14 +29,13 @@ def dump_images(load_dir_name,file_list, img_idx, dump_dir, time_step_index):
     cur_depth = cv2.imread(cur_depth_path,cv2.IMREAD_UNCHANGED)
     pre_depth = cv2.imread(pre_depth_path,cv2.IMREAD_UNCHANGED)
     
-    timp_step_dump_dir = os.path.join(dump_dir, str(time_step_index))
-    if not os.path.exists(timp_step_dump_dir):
-        os.makedirs(timp_step_dump_dir)
+    if not os.path.exists(dump_dir):
+        os.makedirs(dump_dir)
     # save 6 image, inclue bgr, gray and depth image of init and final
     save_name_list = ["init_color.png","final_color.png", "init_gray.png","final_gray.png","init_depth.png","final_depth.png"]
     save_image_list = [pre_image, cur_image, pre_gray, cur_gray, pre_depth, cur_depth]
     for file_name, file_image in zip(save_name_list, save_image_list):
-        cv2.imwrite(os.path.join(timp_step_dump_dir,file_name),file_image)
+        cv2.imwrite(os.path.join(dump_dir,file_name),file_image)
     return cur_image
 
 
@@ -102,9 +101,9 @@ def update_dump_info_dict(dict_list, load_key, info_dict, dump_dir):
 
 
 if __name__ == "__main__":
-    skip_kit = ["bear","bee","bee_rev","butterfly","column","circle_square","bug","math","snail","snail_rev"]
+    skip_kit = ["bee","bee_rev","butterfly","column","circle_square","bug","math","snail","snail_rev"]
     dir_path = os.path.join("20230108","16_kit_color")
-    dump_path = os.path.join("20230108","datasets")
+    dump_path = os.path.join("20230108","datasets_mix0128")
     dict_list = load_info_dict(DICT_NAME_LIST, dir_path)
     angle_dict, obj_mask_dict, corres_dict, center_dict, kit_mask = dict_list
     info_dict = {} # to save labels
@@ -113,7 +112,7 @@ if __name__ == "__main__":
     for root_dir_name, dir_list, file_list in os.walk(dir_path):
         ret_status = None
         kit_name = os.path.basename(root_dir_name)
-        dump_dir = os.path.join(dump_path, kit_name)
+        # dump_dir = os.path.join(dump_path, kit_name)
         if kit_name in skip_kit:
             continue
         
@@ -131,8 +130,17 @@ if __name__ == "__main__":
                 continue
             # has labeled
             load_dir_name = root_dir_name.replace("16_kit_color", "16_kit")
-            cur_image = dump_images(load_dir_name,file_list, img_idx, dump_dir, time_step_index)
-            update_dump_info_dict(dict_list, cur_image_path, info_dict, os.path.join(dump_dir,str(time_step_index)))
+
+            # random chose to train, valid and test
+            split_type = ["train","valid","test"]
+            weights = np.array([0.8,0.1,0.1])
+            random_index = np.random.choice(3,p=weights)
+            random_type = split_type[random_index]
+            dump_dir = os.path.join(dump_path, random_type, "__".join([kit_name,str(time_step_index)]))
+            if not os.path.exists(dump_dir):
+                os.makedirs(dump_dir)
+            cur_image = dump_images(load_dir_name,file_list, img_idx, dump_dir)
+            update_dump_info_dict(dict_list, cur_image_path, info_dict, dump_dir)
             time_step_index += 1
             # cv2.waitKey()
 
