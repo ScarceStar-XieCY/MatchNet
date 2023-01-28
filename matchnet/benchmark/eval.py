@@ -21,7 +21,7 @@ logger=logging.getLogger(__name__)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate Algorithm on Train Partition")
-    parser.add_argument("--pose_pkl", type=str,default = "ORB-PE_poses.pkl")
+    parser.add_argument("--pose_pkl", type=str,default = "bear_poses.pkl")
     parser.add_argument("--debug", type=lambda s: s.lower() in ["1", "true"], default=False)
     args, unparsed = parser.parse_known_args()
 
@@ -35,8 +35,10 @@ if __name__ == "__main__":
         # if data_dir.split("/")[-1] == "deodorants":
         #     continue
         print("{}/{}".format(kit_idx+1, len(kit_dirs)))
-
-        estimated_poses = all_poses[data_dir.split("/")[-1]]
+        if "ORB" in args.pose_pkl:
+            estimated_poses = all_poses[data_dir.split("/")[-1]]
+        else:
+            estimated_poses = all_poses
         test_dir = os.path.join(data_dir,)
         test_foldernames = glob.glob(test_dir + "/*")
         test_foldernames = list(filter(lambda file_name:file_name[-4:] != ".pkl", test_foldernames))

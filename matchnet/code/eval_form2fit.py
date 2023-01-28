@@ -23,6 +23,90 @@ import logging
 
 logger = logging.getLogger(__file__)
 
+def validation_correspondence(dloader,model,device, num_subsample=None):
+    # color_mean = dloader.dataset.c_mean
+    # color_std = dloader.dataset.c_std
+    # depth_mean = dloader.dataset.d_mean
+    # depth_std = dloader.dataset.d_std
+
+    model.eval()
+    rot_correct = 0
+    prec_list = []
+    for idx, (imgs, labels, center) in enumerate(tqdm(dloader)):
+        imgs, labels = imgs.to(device), labels.to(device)
+
+        # remove padding from labels
+        label = labels[0]
+        mask = torch.all(label == torch.LongTensor([999]).repeat(6).to(device), dim=1)
+        label = label[~mask]
+
+        # extract correspondences from label
+        source_idxs = label[:, 0:2]
+        target_idxs = label[:, 2:4]
+        rot_idx = label[:, 4]
+        is_match = label[:, 5]
+        correct_rot = rot_idx[0]
+        mask = (is_match == 1) & (rot_idx == correct_rot)
+        kit_idxs = source_idxs[mask]
+        obj_idxs = target_idxs[mask]
+        # kit_idxs_all = kit_idxs.clone()
+        # obj_idxs_all = obj_idxs.clone()
+        if num_subsample is not None:
+            kit_idxs = kit_idxs[::int(num_subsample)]
+            obj_idxs = obj_idxs[::int(num_subsample)]
+
+        H, W = imgs.shape[2:]
+
+        # compute kit and object descriptor maps
+        with torch.no_grad():
+            outs_s, outs_t = model(imgs, *center[0])
+        out_s = outs_s[0]
+        D, H, W = outs_t.shape[1:]
+        out_t = outs_t[0:1]
+        out_t_flat = out_t.view(1, D, H * W).permute(0, 2, 1)
+
+        # color_kit = ml.tensor2ndarray(imgs[:, 0, :], [color_mean, color_std], True).squeeze()
+        # color_obj = ml.tensor2ndarray(imgs[:, 2, :], [color_mean, color_std], True).squeeze()
+        # depth_kit = ml.tensor2ndarray(imgs[:, 1, :], [depth_mean, depth_std], False).squeeze()
+        # depth_obj = ml.tensor2ndarray(imgs[:, 3, :], [depth_mean, depth_std], False).squeeze()
+
+        # loop through ground truth correspondences
+        # obj_uvs = []
+        # predicted_kit_uvs = []
+        pred_rotations = []
+        
+        for corr_idx, (u, v) in enumerate(obj_idxs): # all point on one obj
+            idx_flat = u*W + v
+            target_descriptor = torch.index_select(out_t_flat, 1, idx_flat).squeeze(0)
+            outs_s_flat = out_s.view(20, out_s.shape[1], H*W)
+            target_descriptor = target_descriptor.unsqueeze(0).repeat(20, H*W, 1).permute(0, 2, 1)
+            diff = outs_s_flat - target_descriptor
+            l2_dist = diff.pow(2).sum(1).sqrt()
+            # heatmaps = l2_dist.view(l2_dist.shape[0], H, W).cpu().numpy()
+            predicted_best_idx = l2_dist.min(dim=1)[0].argmin()
+            pred_rotations.append(predicted_best_idx.item())
+            # min_val = heatmaps[predicted_best_idx].argmin()
+            # u_min, v_min = np.unravel_index(min_val, (H, W))
+            # predicted_kit_uvs.append([u_min.item(), v_min.item()])
+            # obj_uvs.append([u.item(), v.item()])
+        pred_rotations_array = np.array(pred_rotations)
+
+        # each obj hav one prec
+        tp = np.sum(pred_rotations_array == correct_rot)
+        prec = tp / len(obj_idxs)
+        prec_list.append(prec)
+
+        # compute rotation majority
+        best_rot = mode(pred_rotations,axis=None,keepdims=False)[0]
+        if best_rot == correct_rot:
+            rot_correct += 1
+        
+    acc = rot_correct / len(dloader)
+    ap = np.mean(prec)
+    return ap, acc
+
+
+
 def main(args):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 

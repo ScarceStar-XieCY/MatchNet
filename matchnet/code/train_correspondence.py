@@ -16,6 +16,8 @@ from matchnet.code.ml.dataloader import get_corr_loader
 from matchnet.code.ml.models.correspondence import CorrespondenceNet
 from matchnet.code.ml import losses
 from torch.utils.tensorboard import SummaryWriter   
+from matchnet.code.eval_form2fit import validation_correspondence
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -74,10 +76,8 @@ if __name__ == "__main__":
 
     batch_size = opt.batchsize
     epochs = opt.epochs
-    kit_name = "bear"
+    dataset_name = "../datasets_mix0128"
     savepath = opt.savepath
-    
-    testroot = "dataset/test"
     background_subtract = opt.background_subtract
     use_color = True
     num_channels = 4
@@ -85,11 +85,7 @@ if __name__ == "__main__":
     
     set_seed(True)
 
-
-    print("--------------start preparing data--------------")
-    
-    
-    train_loader = get_corr_loader(kit_name, 
+    train_loader = get_corr_loader(dataset_name, 
                                         dtype="train", 
                                         batch_size=batch_size, 
                                         use_color = use_color,
@@ -99,6 +95,19 @@ if __name__ == "__main__":
                                         shuffle=True,
                                         num_workers=8,
                                         background_subtract=background_subtract)
+
+    valid_loader = get_corr_loader(dataset_name, 
+                                dtype="valid", 
+                                batch_size=1, 
+                                use_color = use_color,
+                                num_channels=num_channels, 
+                                sample_ratio=1, 
+                                augment=False,
+                                shuffle=False,
+                                background_subtract=None,
+                                use_color = True,
+                                num_channels = 4,
+                                num_worker = 8)
 
     model = CorrespondenceNet(num_channels=num_channels, num_descriptor=64, num_rotations=20).to(device)
     criterion = losses.CorrespondenceLoss(sample_ratio=sample_ratio, device=device, margin=8, num_rotations=20, hard_negative=True)
@@ -144,8 +153,13 @@ if __name__ == "__main__":
 
             #print("epoch={}/{},{}/{}of train, loss={}".format(epoch, opt.epochs, i, len(train_loader),loss.item()))
             logger.warning("epoch = {}/{}, {}/{} of train, loss = {}".format(epoch, opt.epochs, i, len(train_loader),loss.item()))
-        scheduler.step()
+        
+        # each epoch
+            scheduler.step()
+            rot_ap, rot_acc = validation_correspondence(valid_loader, model, device, 1)
         writer.add_scalar("loss/epoch", np.mean(train_epoch_loss), global_step=epoch, walltime=None)
+        writer.add_scalar("metric/rot_ap", rot_ap, global_step=epoch, walltime=None)
+        writer.add_scalar("metric/rot_acc", rot_acc, global_step=epoch, walltime=None)
 
         save_ckpt(savepath,"corrs",epoch, model,optimizer,scheduler)
     writer.close()
