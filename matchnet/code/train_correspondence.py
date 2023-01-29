@@ -16,7 +16,7 @@ from matchnet.code.ml.dataloader import get_corr_loader
 from matchnet.code.ml.models.correspondence import CorrespondenceNet
 from matchnet.code.ml import losses
 from torch.utils.tensorboard import SummaryWriter   
-from matchnet.code.eval_form2fit import validation_correspondence
+from matchnet.code.eval_form2fit import validation_correspondence,COORD_NAMES
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Form2Fit suction Module")
     parser.add_argument("--batchsize", type=int, default=1, help="The batchsize of the dataset.")
     parser.add_argument("--sample_ratio", type=int, default=5, help="The ratio of negative to positive labels.")
-    parser.add_argument("--epochs", type=int, default=200, help="The number of training epochs.")
+    parser.add_argument("--epochs", type=int, default=300, help="The number of training epochs.")
     parser.add_argument("--augment","-a", action='store_true', help="(bool) Whether to apply data augmentation.",default=True)
     parser.add_argument("--background_subtract", type=tuple, default=None, help="apply mask.")
     parser.add_argument("--dtype", type=str, default="valid")
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     model = CorrespondenceNet(num_channels=num_channels, num_descriptor=64, num_rotations=20).to(device)
     criterion = losses.CorrespondenceLoss(sample_ratio=sample_ratio, device=device, margin=8, num_rotations=20, hard_negative=True)
     optimizer = torch.optim.Adam(model.parameters(),lr=1e-3) # 1e-3
-    scheduler = StepLR(optimizer, step_size=200, gamma=0.5) # gamma=0.1
+    scheduler = StepLR(optimizer, step_size=150, gamma=0.5) # gamma=0.1
     start_epoch = -1
     if opt.resume:
         state_dict = torch.load(opt.checkpoint, map_location=device)
@@ -128,17 +128,18 @@ if __name__ == "__main__":
     logger.warning("train from %s epoch, ckpt = %s",start_epoch, opt.checkpoint)
     one_epoch_step = len(train_loader)
     for epoch in tqdm(range(start_epoch +1, epochs)):
+        logger.warning("training...")
         model.train()
         train_epoch_loss = []
 
-        for i, (imgs, labels, centers) in enumerate(train_loader):
+        for i, (imgs, labels, kit_centers, obj_centers) in enumerate(train_loader):
 
             imgs = imgs.to(device)
             cuda_labels = []
             for j in range(len(labels)):
                 cuda_labels.append(labels[j].to(device))
 
-            out_s, out_t = model(imgs,centers[0][0], centers[0][1])
+            out_s, out_t = model(imgs,kit_centers[0][0], kit_centers[0][1])
             optimizer.zero_grad()
             match_loss, no_match_loss = criterion(out_s, out_t, cuda_labels) #TODO:check output shape and split
             loss = (sample_ratio * match_loss) + no_match_loss
@@ -157,10 +158,21 @@ if __name__ == "__main__":
             logger.warning("epoch = {}/{}, {}/{} of train, loss = {}".format(epoch, opt.epochs, i, len(train_loader),loss.item()))
         
         # each epoch
-        rot_ap, rot_acc = validation_correspondence(valid_loader, model, device, 16)
+        logger.warning("validating...")
         writer.add_scalar("loss/epoch", np.mean(train_epoch_loss), global_step=epoch, walltime=None)
-        writer.add_scalar("metric/rot_ap", rot_ap, global_step=epoch, walltime=None)
-        writer.add_scalar("metric/rot_acc", rot_acc, global_step=epoch, walltime=None)
+
+        pred_dict = validation_correspondence(train_loader, model, device, 16, 10)
+        writer.add_scalar("train_metric/rot_ap_uniform", pred_dict["ap"][COORD_NAMES[0]], global_step=epoch, walltime=None)
+        writer.add_scalar("train_metric/rot_acc_uniform", pred_dict["acc"][COORD_NAMES[0]], global_step=epoch, walltime=None)
+        writer.add_scalar("train_metric/rot_ap_ccircle", pred_dict["ap"][COORD_NAMES[1]], global_step=epoch, walltime=None)
+        writer.add_scalar("train_metric/rot_acc_ccircle", pred_dict["acc"][COORD_NAMES[1]], global_step=epoch, walltime=None)
+
+
+        pred_dict = validation_correspondence(valid_loader, model, device, 16)
+        writer.add_scalar("valid_metric/rot_ap_uniform", pred_dict["ap"][COORD_NAMES[0]], global_step=epoch, walltime=None)
+        writer.add_scalar("valid_metric/rot_acc_uniform", pred_dict["acc"][COORD_NAMES[0]], global_step=epoch, walltime=None)
+        writer.add_scalar("valid_metric/rot_ap_ccircle", pred_dict["ap"][COORD_NAMES[1]], global_step=epoch, walltime=None)
+        writer.add_scalar("valid_metric/rot_acc_ccircle", pred_dict["acc"][COORD_NAMES[1]], global_step=epoch, walltime=None)
 
         save_ckpt(savepath,"corrs",epoch, model,optimizer,scheduler)
         scheduler.step()

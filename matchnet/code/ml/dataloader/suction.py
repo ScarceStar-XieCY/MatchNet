@@ -238,6 +238,7 @@ class SuctionDataset(Dataset):
             affine = affine[:2, :]
             c_height_i = cv2.warpAffine(c_height_i, affine, shape, flags=cv2.INTER_NEAREST)
             d_height_i = cv2.warpAffine(d_height_i, affine, shape, flags=cv2.INTER_NEAREST)
+
             aff_1[:2, 2] = [-self._uc, -self._vc]
             aff_2 = gen_rot_mtx_anticlockwise(-angle)
             aff_2[:2, 2] = [tv, tu]
@@ -260,6 +261,7 @@ class SuctionDataset(Dataset):
             affine = affine[:2, :]
             c_height_f = cv2.warpAffine(c_height_f, affine, shape, flags=cv2.INTER_NEAREST)
             d_height_f = cv2.warpAffine(d_height_f, affine, shape, flags=cv2.INTER_NEAREST)
+            
             aff_1[:2, 2] = [-self._H//2, -self._W//2]
             aff_2 = gen_rot_mtx_anticlockwise(-angle)
             aff_2[:2, 2] = [tv, tu]

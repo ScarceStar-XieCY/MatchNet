@@ -32,7 +32,7 @@ def tensor2ndarray(x, mu_sigma=None, color=True):
             stds = mu_sigma[1]
             for c in range(channels):
                 img[..., c] = (img[..., c] * stds[c]) + means[c]
-        img = (img * 255).astype("uint8")
+        img = (img * 1).astype("uint8")
     else:
         img = img.squeeze()
         img = img[..., np.newaxis]

@@ -124,11 +124,13 @@ class CorrespondenceDataset(Dataset):
             hole_mask = info_dict["hole"][-1]
             kit_minus_hole_mask = info_dict["kit_with_hole"][-1]
             kit_plus_hole_mask = info_dict["kit_no_hole"][-1]
+            obj_center = info_dict["final_point"][-1]
         else:
             object_mask = info_dict["obj"]
             hole_mask = info_dict["hole"]
             kit_minus_hole_mask = info_dict["kit_with_hole"]
             kit_plus_hole_mask = info_dict["kit_no_hole"]
+            obj_center = info_dict["final_point"][-1]
 
         # load correspondences
         corrs = info_dict["corres"]
@@ -161,6 +163,7 @@ class CorrespondenceDataset(Dataset):
             corrs,
             rot_quant_indices,
             cur_rotation,
+            obj_center,
         )
 
     def _split_heightmap(self, height):
@@ -313,7 +316,7 @@ class CorrespondenceDataset(Dataset):
         # load states
         c_height_i, d_height_i, c_height_f, \
             d_height_f, object_mask, hole_mask, kit_minus_hole_mask, \
-                kit_plus_hole_mask, all_corrs, rot_quant_indices, gd_truth_rot = self._load_state(self._filenames[idx])
+                kit_plus_hole_mask, all_corrs, rot_quant_indices, gd_truth_rot,obj_center = self._load_state(self._filenames[idx])
 
         # split heightmap into source and target
         c_height_s, c_height_t = self._split_heightmap(c_height_f)
@@ -623,7 +626,8 @@ class CorrespondenceDataset(Dataset):
         # concatenate source and target into a 8-channel tensor
         img_tensor = torch.cat([source_img_tensor, target_img_tensor], dim=0)
 
-        return img_tensor, label_tensor, (self._uc, self._vc)
+        kit_center = (self._uc, self._vc)
+        return img_tensor, label_tensor, kit_center, obj_center
 
 
 def get_corr_loader(
@@ -667,7 +671,8 @@ def get_corr_loader(
         """
         imgs = [b[0] for b in batch]
         labels = [b[1] for b in batch]
-        centers = [b[2] for b in batch]
+        kit_centers = [b[2] for b in batch]
+        obj_centers = [b[3] for b in batch]
         # mask = [b[2] for b in batch]
         # kit_mask = [b[3] for b in batch]
         imgs = torch.stack(imgs, dim=0)
@@ -683,7 +688,7 @@ def get_corr_loader(
             else:
                 new_labels.append(l)
         labels = torch.stack(new_labels, dim=0)
-        return [imgs, labels, centers]
+        return [imgs, labels, kit_centers,obj_centers]
 
     num_workers = min(num_workers, multiprocessing.cpu_count())
     root = os.path.join(foldername,dtype)
