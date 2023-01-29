@@ -26,7 +26,7 @@ from tqdm import tqdm
 import logging
 
 SEED=666
-tb_path = './tb_log_corres_mix0128_3'
+tb_path = './tb_log_corres_mix0128_4'
 if not os.path.exists(tb_path):
         os.makedirs(tb_path)
 writer = SummaryWriter(tb_path)
@@ -40,7 +40,7 @@ def save_ckpt(savepath,net_type,epoch,model,optimizer,scheduler):
     'epoch': epoch,
     'model': model.state_dict(),
     'optimizer': optimizer.state_dict(),
-    'scheduler': scheduler.state_dict(),
+    # 'scheduler': scheduler.state_dict(),
         }
     if (epoch + 1) % 20 == 0:
         savedpath = os.path.join(savepath,net_type+'_epoch' + str(epoch) + '.pth')
@@ -63,14 +63,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Form2Fit suction Module")
     parser.add_argument("--batchsize", type=int, default=1, help="The batchsize of the dataset.")
     parser.add_argument("--sample_ratio", type=int, default=5, help="The ratio of negative to positive labels.")
-    parser.add_argument("--epochs", type=int, default=300, help="The number of training epochs.")
+    parser.add_argument("--epochs", type=int, default=500, help="The number of training epochs.")
     parser.add_argument("--augment","-a", action='store_true', help="(bool) Whether to apply data augmentation.",default=True)
     parser.add_argument("--background_subtract", type=tuple, default=None, help="apply mask.")
     parser.add_argument("--dtype", type=str, default="valid")
     parser.add_argument("--imgsize", type=list, default=[848,480], help="size of final image.")
     parser.add_argument("--root", type=str, default="", help="the path of dataset")
-    parser.add_argument("--savepath", type=str, default="matchnet/code/ml/savedmodel/mix0128_3/", help="the path of saved models")
-    parser.add_argument("--resume","-r",  action='store_true', help="whether to resume",default=True)
+    parser.add_argument("--savepath", type=str, default="matchnet/code/ml/savedmodel/mix0128_4/", help="the path of saved models")
+    parser.add_argument("--resume","-r",  action='store_true', help="whether to resume",default=False)
     parser.add_argument("--checkpoint","-c",  type=str, default="matchnet/code/ml/savedmodel/mix0128/corrs_epoch34.pth", help="the path of resume models")
     opt = parser.parse_args()
 
@@ -111,17 +111,19 @@ if __name__ == "__main__":
 
     model = CorrespondenceNet(num_channels=num_channels, num_descriptor=64, num_rotations=20).to(device)
     criterion = losses.CorrespondenceLoss(sample_ratio=sample_ratio, device=device, margin=8, num_rotations=20, hard_negative=True)
-    optimizer = torch.optim.Adam(model.parameters(),lr=1e-3) # 1e-3
-    scheduler = StepLR(optimizer, step_size=150, gamma=0.5) # gamma=0.1
+    # optimizer = torch.optim.Adam(model.parameters(),lr=5e-2) # 1e-3
+    optimizer = torch.optim.Adam(model.parameters(),lr=1e-3,betas=[0.9,0.999],weight_decay=3e-6) # 1e-3
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, last_epoch=-1)
+    # scheduler = StepLR(optimizer, step_size=150, gamma=0.5) # gamma=0.1
     start_epoch = -1
     if opt.resume:
         state_dict = torch.load(opt.checkpoint, map_location=device)
         model.load_state_dict(state_dict["model"])
         start_epoch = state_dict["epoch"]
         optimizer.load_state_dict(state_dict["optimizer"])
-        state_dict["scheduler"]["step_size"] = 200
-        state_dict["scheduler"]["gamma"] = 0.5
-        scheduler.load_state_dict(state_dict["scheduler"])
+        # state_dict["scheduler"]["step_size"] = 200
+        # state_dict["scheduler"]["gamma"] = 0.5
+        # scheduler.load_state_dict(state_dict["scheduler"])
     # valid_loss = []
     # train_epochs_loss = []
     # valid_epochs_loss = []
