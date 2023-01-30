@@ -25,25 +25,29 @@ from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
 import logging
 
+EXP_NAME="bear_1"
 SEED=666
-tb_path = './tb_log_corres_mix0128_5'
+tb_path = './tb_log_corres_' + EXP_NAME
 if not os.path.exists(tb_path):
         os.makedirs(tb_path)
 writer = SummaryWriter(tb_path)
 logger= logging.getLogger(__file__)
 
 
-def save_ckpt(savepath,net_type,epoch,model,optimizer,scheduler):
+def save_ckpt(savepath,net_type,epoch,model,optimizer,scheduler,metric_value):
     if not os.path.exists(savepath):
         os.makedirs(savepath)
     checkpoint = {
     'epoch': epoch,
     'model': model.state_dict(),
     'optimizer': optimizer.state_dict(),
-    # 'scheduler': scheduler.state_dict(),
+    'scheduler': scheduler.state_dict(),
         }
-    if (epoch + 1) % 20 == 0:
+    if (epoch + 1) % 50 == 0:
         savedpath = os.path.join(savepath,net_type+'_epoch' + str(epoch) + '.pth')
+        torch.save(checkpoint, savedpath)
+    if metric_value >= 0.6:
+        savedpath = os.path.join(savepath,net_type+'_epoch' + str(epoch) + str(metric_value) + '.pth')
         torch.save(checkpoint, savedpath)
     savedpath = os.path.join(savepath,net_type +'_last_epoch.pth')
     torch.save(checkpoint, savedpath)
@@ -69,16 +73,16 @@ if __name__ == "__main__":
     parser.add_argument("--dtype", type=str, default="valid")
     parser.add_argument("--imgsize", type=list, default=[848,480], help="size of final image.")
     parser.add_argument("--root", type=str, default="", help="the path of dataset")
-    parser.add_argument("--savepath", type=str, default="matchnet/code/ml/savedmodel/mix0128_5/", help="the path of saved models")
+    parser.add_argument("--savepath", type=str, default="matchnet/code/ml/savedmodel/"+EXP_NAME, help="the path of saved models")
     parser.add_argument("--resume","-r",  action='store_true', help="whether to resume",default=False)
-    parser.add_argument("--checkpoint","-c",  type=str, default="matchnet/code/ml/savedmodel/mix0128/corrs_epoch34.pth", help="the path of resume models")
+    parser.add_argument("--checkpoint","-c",  type=str, default="matchnet/code/ml/savedmodel/mix0128_5/corrs_epoch99.pth", help="the path of resume models")
     opt = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     batch_size = opt.batchsize
     epochs = opt.epochs
-    dataset_name = "../datasets_mix0128"
+    dataset_name = "../datasets_bear"
     savepath = opt.savepath
     background_subtract = opt.background_subtract
     use_color = True
@@ -112,18 +116,20 @@ if __name__ == "__main__":
     model = CorrespondenceNet(num_channels=num_channels, num_descriptor=64, num_rotations=20).to(device)
     criterion = losses.CorrespondenceLoss(sample_ratio=sample_ratio, device=device, margin=8, num_rotations=20, hard_negative=True)
     # optimizer = torch.optim.Adam(model.parameters(),lr=5e-2) # 1e-3
-    optimizer = torch.optim.Adam(model.parameters(),lr=6e-4,betas=[0.9,0.999],weight_decay=3e-6) # 1e-3
+    optimizer = torch.optim.Adam(model.parameters(),lr=1e-3,betas=[0.9,0.999],weight_decay=3e-6) # 1e-3
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, last_epoch=-1)
-    scheduler = StepLR(optimizer, step_size=70, gamma=0.5) # gamma=0.1
+    scheduler = StepLR(optimizer, step_size=100, gamma=0.2) # gamma=0.1
     start_epoch = -1
     if opt.resume:
         state_dict = torch.load(opt.checkpoint, map_location=device)
         model.load_state_dict(state_dict["model"])
         start_epoch = state_dict["epoch"]
         optimizer.load_state_dict(state_dict["optimizer"])
+        # for i in range(start_epoch+1):
+        #     scheduler.step()
         # state_dict["scheduler"]["step_size"] = 200
         # state_dict["scheduler"]["gamma"] = 0.5
-        # scheduler.load_state_dict(state_dict["scheduler"])
+        scheduler.load_state_dict(state_dict["scheduler"])
     # valid_loss = []
     # train_epochs_loss = []
     # valid_epochs_loss = []
@@ -176,7 +182,7 @@ if __name__ == "__main__":
         writer.add_scalar("valid_metric/rot_ap_ccircle", pred_dict["ap"][COORD_NAMES[1]], global_step=epoch, walltime=None)
         writer.add_scalar("valid_metric/rot_acc_ccircle", pred_dict["acc"][COORD_NAMES[1]], global_step=epoch, walltime=None)
 
-        # save_ckpt(savepath,"corrs",epoch, model,optimizer,scheduler)
-        save_ckpt(savepath,"corrs",epoch, model,optimizer,None)
-        # scheduler.step()
+        save_ckpt(savepath,"corrs",epoch, model,optimizer,scheduler, pred_dict["acc"][COORD_NAMES[1]])
+        # save_ckpt(savepath,"corrs",epoch, model,optimizer,None)
+        scheduler.step()
     writer.close()
