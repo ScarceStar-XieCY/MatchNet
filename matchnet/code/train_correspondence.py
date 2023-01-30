@@ -112,9 +112,9 @@ if __name__ == "__main__":
     model = CorrespondenceNet(num_channels=num_channels, num_descriptor=64, num_rotations=20).to(device)
     criterion = losses.CorrespondenceLoss(sample_ratio=sample_ratio, device=device, margin=8, num_rotations=20, hard_negative=True)
     # optimizer = torch.optim.Adam(model.parameters(),lr=5e-2) # 1e-3
-    optimizer = torch.optim.Adam(model.parameters(),lr=1e-4,betas=[0.9,0.999],weight_decay=3e-6) # 1e-3
+    optimizer = torch.optim.Adam(model.parameters(),lr=6e-4,betas=[0.9,0.999],weight_decay=3e-6) # 1e-3
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, last_epoch=-1)
-    # scheduler = StepLR(optimizer, step_size=150, gamma=0.5) # gamma=0.1
+    scheduler = StepLR(optimizer, step_size=70, gamma=0.5) # gamma=0.1
     start_epoch = -1
     if opt.resume:
         state_dict = torch.load(opt.checkpoint, map_location=device)
