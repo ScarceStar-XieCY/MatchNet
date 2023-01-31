@@ -25,7 +25,7 @@ from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
 import logging
 
-EXP_NAME="bear_1"
+EXP_NAME="bear_2_32"
 SEED=666
 tb_path = './tb_log_corres_' + EXP_NAME
 if not os.path.exists(tb_path):
@@ -113,7 +113,7 @@ if __name__ == "__main__":
                                 background_subtract=None,
                                 num_workers = 8)
 
-    model = CorrespondenceNet(num_channels=num_channels, num_descriptor=64, num_rotations=20).to(device)
+    model = CorrespondenceNet(num_channels=num_channels, num_descriptor=32, num_rotations=20).to(device)
     criterion = losses.CorrespondenceLoss(sample_ratio=sample_ratio, device=device, margin=8, num_rotations=20, hard_negative=True)
     # optimizer = torch.optim.Adam(model.parameters(),lr=5e-2) # 1e-3
     optimizer = torch.optim.Adam(model.parameters(),lr=1e-3,betas=[0.9,0.999],weight_decay=3e-6) # 1e-3
@@ -169,20 +169,20 @@ if __name__ == "__main__":
         logger.warning("validating...")
         writer.add_scalar("loss/epoch", np.mean(train_epoch_loss), global_step=epoch, walltime=None)
 
-        pred_dict = validation_correspondence(train_loader, model, device, 16, 10)
-        writer.add_scalar("train_metric/rot_ap_uniform", pred_dict["ap"][COORD_NAMES[0]], global_step=epoch, walltime=None)
-        writer.add_scalar("train_metric/rot_acc_uniform", pred_dict["acc"][COORD_NAMES[0]], global_step=epoch, walltime=None)
-        writer.add_scalar("train_metric/rot_ap_ccircle", pred_dict["ap"][COORD_NAMES[1]], global_step=epoch, walltime=None)
-        writer.add_scalar("train_metric/rot_acc_ccircle", pred_dict["acc"][COORD_NAMES[1]], global_step=epoch, walltime=None)
+        train_pred_dict = validation_correspondence(train_loader, model, device, 16, 10)
+        writer.add_scalar("train_metric/rot_ap_uniform", train_pred_dict["ap"][COORD_NAMES[0]], global_step=epoch, walltime=None)
+        writer.add_scalar("train_metric/rot_acc_uniform", train_pred_dict["acc"][COORD_NAMES[0]], global_step=epoch, walltime=None)
+        writer.add_scalar("train_metric/rot_ap_ccircle", train_pred_dict["ap"][COORD_NAMES[1]], global_step=epoch, walltime=None)
+        writer.add_scalar("train_metric/rot_acc_ccircle", train_pred_dict["acc"][COORD_NAMES[1]], global_step=epoch, walltime=None)
 
 
-        pred_dict = validation_correspondence(valid_loader, model, device, 16)
-        writer.add_scalar("valid_metric/rot_ap_uniform", pred_dict["ap"][COORD_NAMES[0]], global_step=epoch, walltime=None)
-        writer.add_scalar("valid_metric/rot_acc_uniform", pred_dict["acc"][COORD_NAMES[0]], global_step=epoch, walltime=None)
-        writer.add_scalar("valid_metric/rot_ap_ccircle", pred_dict["ap"][COORD_NAMES[1]], global_step=epoch, walltime=None)
-        writer.add_scalar("valid_metric/rot_acc_ccircle", pred_dict["acc"][COORD_NAMES[1]], global_step=epoch, walltime=None)
+        valid_pred_dict = validation_correspondence(valid_loader, model, device, 16)
+        writer.add_scalar("valid_metric/rot_ap_uniform", valid_pred_dict["ap"][COORD_NAMES[0]], global_step=epoch, walltime=None)
+        writer.add_scalar("valid_metric/rot_acc_uniform", valid_pred_dict["acc"][COORD_NAMES[0]], global_step=epoch, walltime=None)
+        writer.add_scalar("valid_metric/rot_ap_ccircle", valid_pred_dict["ap"][COORD_NAMES[1]], global_step=epoch, walltime=None)
+        writer.add_scalar("valid_metric/rot_acc_ccircle", valid_pred_dict["acc"][COORD_NAMES[1]], global_step=epoch, walltime=None)
 
-        save_ckpt(savepath,"corrs",epoch, model,optimizer,scheduler, pred_dict["acc"][COORD_NAMES[1]])
+        save_ckpt(savepath,"corrs",epoch, model,optimizer,scheduler, train_pred_dict["acc"][COORD_NAMES[1]])
         # save_ckpt(savepath,"corrs",epoch, model,optimizer,None)
         scheduler.step()
     writer.close()
