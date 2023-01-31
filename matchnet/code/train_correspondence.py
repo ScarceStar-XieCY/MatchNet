@@ -25,7 +25,7 @@ from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
 import logging
 
-EXP_NAME="bear_2_32"
+EXP_NAME="bear_3_32"
 SEED=666
 tb_path = './tb_log_corres_' + EXP_NAME
 if not os.path.exists(tb_path):
@@ -118,7 +118,7 @@ if __name__ == "__main__":
     # optimizer = torch.optim.Adam(model.parameters(),lr=5e-2) # 1e-3
     optimizer = torch.optim.Adam(model.parameters(),lr=1e-3,betas=[0.9,0.999],weight_decay=3e-6) # 1e-3
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, last_epoch=-1)
-    scheduler = StepLR(optimizer, step_size=100, gamma=0.2) # gamma=0.1
+    scheduler = StepLR(optimizer, step_size=150, gamma=0.1) # gamma=0.1
     start_epoch = -1
     if opt.resume:
         state_dict = torch.load(opt.checkpoint, map_location=device)
