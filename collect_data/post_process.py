@@ -89,7 +89,7 @@ def update_dump_info_dict(dict_list, load_key, info_dict, dump_dir):
     kit_no_hole_mask = coord2mask(kit_mask[load_key], h,w,visual=False)
     hole_mask = coord2mask(info_dict["hole"][-1], h,w,visual=False)
     kit_with_hole = cv2.subtract(kit_no_hole_mask, hole_mask)
-    cv2.imshow("kit_with_hole", kit_with_hole)
+    # cv2.imshow("kit_with_hole", kit_with_hole)
     kit = mask2coord(kit_with_hole, need_xy=False)
     info_dict["kit_with_hole"].append(kit)
 
@@ -101,9 +101,10 @@ def update_dump_info_dict(dict_list, load_key, info_dict, dump_dir):
 
 
 if __name__ == "__main__":
-    skip_kit = ["bee","bee_rev","butterfly","column","circle_square","bug","math","snail","snail_rev"]
+    # skip_kit = ["bee","bee_rev","butterfly","column","circle_square","bug","math","snail","snail_rev"]
+    pros_kit = ["bear","rabbit"]
     dir_path = os.path.join("20230108","16_kit_color")
-    dump_path = os.path.join("20230108","datasets_mix0128")
+    dump_path = os.path.join("20230108","datasets_bear")
     dict_list = load_info_dict(DICT_NAME_LIST, dir_path)
     angle_dict, obj_mask_dict, corres_dict, center_dict, kit_mask = dict_list
     info_dict = {} # to save labels
@@ -113,7 +114,7 @@ if __name__ == "__main__":
         ret_status = None
         kit_name = os.path.basename(root_dir_name)
         # dump_dir = os.path.join(dump_path, kit_name)
-        if kit_name in skip_kit:
+        if kit_name not in pros_kit:
             continue
         
         file_list = filter_sort_image(file_list)

@@ -70,9 +70,9 @@ def text_delta_angle(image_path, angle_dict, image):
     cv2.putText(image,f"delta_angle = {delta_angle}",(50,50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0))
 
 
-def draw_line_between_pts(image:np.ndarray,pt1:tuple,pt2:tuple):
+def draw_line_between_pts(image:np.ndarray,pt1:tuple,pt2:tuple,color=(0,255,0)):
     """Drawn line on image."""
-    cv2.line(image, pt1,pt2,(0,255,0),1)
+    cv2.line(image, pt1,pt2,color,1)
 
 
 def update_corres_mask(image_path, obj_mask_dict, corres_dict,center_dict, delta_angle,is_degree):

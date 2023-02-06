@@ -436,7 +436,7 @@ def draw_lines(lines, mask, color, width, visual, message):
 
 
 def get_each_mask(mask):
-    labels = label(mask,connectivity=1)
+    labels = label(mask,connectivity=2)
     num = np.max(labels) #背景+白色连通域个数
     each_mask_list = []
     for i in range(1, num+1):
@@ -490,15 +490,15 @@ def get_max_inner_circle(mask, visual):
 
     _, max_val, _, max_idx = cv2.minMaxLoc(raw_dist)
     if max_val < 0:
-        result = cv2.cvtColor(mask,cv2.COLOR_GRAY2BGR)
-        cv2.drawContours(result, [contour], 0, (255,0,0), 2)
-        cv2.imshow('result_max_val < 0', result)
-        cv2.waitKey()
+        # result = cv2.cvtColor(mask,cv2.COLOR_GRAY2BGR)
+        # cv2.drawContours(result, [contour], 0, (255,0,0), 2)
+        # cv2.imshow('result_max_val < 0', result)
+        # cv2.waitKey()
         return None,None
 
     if visual:
         result = cv2.cvtColor(mask,cv2.COLOR_GRAY2BGR)
-        cv2.circle(result,max_idx, np.int(max_val),(0,255,0), 2, cv2.LINE_8, 0)
+        cv2.circle(result,max_idx, int(max_val),(0,255,0), 2, cv2.LINE_8, 0)
         cv2.imshow('result', result)  
     # return circle xy coord and fp32 radius 
     if isinstance(max_idx, tuple):

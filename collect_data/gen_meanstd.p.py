@@ -33,9 +33,9 @@ if __name__ == "__main__":
     depth_std_sum = 0
     norm_info = {}
 
-    root_dir = os.path.join("20230108","datasets")
+    root_dir = os.path.join("20230108","datasets_bear")
     for root_name, dir_list, file_list in os.walk(root_dir):
-        if "bear" in dir_list:
+        if "train" in dir_list:
             continue
         for time_dir in dir_list:
             dirname = os.path.join(root_name, time_dir)
