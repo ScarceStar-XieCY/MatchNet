@@ -5,7 +5,7 @@ import os
 import numpy as np
 import sys
 sys.path.append(os.getcwd())
-from tools.image_mask.mask_process import open_morph,get_half_centroid_mask,remove_inner_black
+from tools.image_mask.mask_process import open_morph,get_half_centroid_mask,remove_inner_black,dilate
 from tools.image_mask.mask_process import mask2coord, coord2mask, get_mask_center
 from tools.matrix import rigid_trans_mask_around_point
 import logging
@@ -33,21 +33,29 @@ class OverlapDetector:
     def __init__(self,shape):
         self._h = shape[0]
         self._w = shape[1]
-        self._obj_mask = np.zeros(shape,dtype = np.int)
+        self._obj_mask = np.zeros(shape,dtype = np.uint8)
+        self._cur_obj_mask = None
     
     def detect_overlap(self, mask, theta, init_point, final_point):
+        if self._cur_obj_mask is None:
+            mask = dilate(mask, 3, 5)  
+        else:
+            mask = self._cur_obj_mask
         rigid_coord = rigid_trans_mask_around_point(mask, theta, init_point,final_point)
         rigid_mask = coord2mask(rigid_coord,self.h, self.w, visual=True)
         intersection_mask = (self._obj_mask & rigid_mask)
         is_overlap = intersection_mask.any()
         if is_overlap:
+            self._cur_obj_mask = rigid_mask
             return True
         else:
             self._obj_mask = self._obj_mask | rigid_mask
+            self._cur_obj_mask = None
             return False
     
     def reset(self):
-        self._obj_mask = np.zeros_like(self._obj_mask,dtype = np.int)
+        self._obj_mask = np.zeros_like(self._obj_mask,dtype = np.uint8)
+        self._cur_obj_mask = None
 
 
 if __name__ == "__main__":
