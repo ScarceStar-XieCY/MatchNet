@@ -1,7 +1,7 @@
 import sys
 import os
 sys.path.append(os.getcwd())
-from tools.hardware.arm.operation import arm_placement,arm_suction,arm_init
+from tools.hardware.arm.operation import MyRobot
 import time
 import random
 import logging
@@ -10,35 +10,29 @@ import numpy as np
 # from tools.hardware.arm.HitbotInterface import HitbotInterface
 import pickle
 from tools.hardware.camera.cam_d435i import initial_camera, get_curr_image
-from collect_data.mask_process import get_mask_center, dilate,remove_surrounding_white
-from collect_data.image_process import adap_get_mask_in_color_space
-
+from tools.image_mask.mask_process import get_mask_center, dilate,remove_surrounding_white
+from tools.image_mask.image_process import adap_get_mask_in_color_space
+from tqdm import tqdm
 
 OBJ_HEIGHT = -112 # -117 -110
 logger = logging.getLogger(__file__)
 
-def gen_coords(method:str= "grid",epoch:int = 100):
+
+
+def gen_coords(method:str= "grid"):
     """Generate coordinates."""
     coords = []
     if method == "grid":
-        
-        x1,y1 = 90, -100
-        coords.append(((int(x1), int(y1), OBJ_HEIGHT), 0))
-        i = 0
-        while(i<epoch):
-            if x1 < 230:
-                x1 = x1 + 40
-            else:
-                y1 = y1 + 40
-                x1 = 90
-            coords.append(((int(x1), int(y1), OBJ_HEIGHT), 0))
-            i += 1
+        x = np.arange(90, 231, 60)
+        y = np.arange(-180, 181, 60)
+        x_grid, y_grid = np.meshgrid(x,y)
+        for i in range(len(x_grid)):
+            coords.append(((int(x_grid[i]), int(y_grid[i]), OBJ_HEIGHT), 0))
     else:
-        for _ in range(epoch):
-            x1 = random.uniform(90, 230)
-            y1 = random.uniform(-180, -40)
-            randomrz = int(random.uniform(0, 90))                                   # 随机生成坐标,以及旋转角度，输出[x,y,z], rz
-            coords.append(((int(x1), int(y1), OBJ_HEIGHT), randomrz))                                 
+        x1 = random.uniform(90, 230)
+        y1 = random.uniform(-180, -40)
+        randomrz = int(random.uniform(0, 90))                                   # 随机生成坐标,以及旋转角度，输出[x,y,z], rz
+        coords.append(((int(x1), int(y1), OBJ_HEIGHT), randomrz))                                 
     logger.info(f"Generate coord: {coords}.")
     return coords
 
@@ -50,58 +44,17 @@ def _get_obj_mask(image):
     mask_lab = remove_surrounding_white(mask_lab,False)
     return mask_lab
 
-def get_data_txt(dir='data.txt'):                   # 按照 [imgpoints0, imgpoints1, objpoints0, objpoints1, objpoints2] 的原则读取txt.
-    f = open(dir, 'r')
-    imgpoints = []
-    objpoints = []
-    for lines in f:
-        ls = lines.strip('\n').replace(' ','').replace('、','/').replace('?','').split(',')
-        print("img/n", imgpoints)
-        print("obj/n", objpoints)
-        imgpoints.append([float(ls[0]), float(ls[1])])
-        objpoints.append([float(ls[2]), float(ls[3]), float(ls[4])])
-    return imgpoints, objpoints
-
-
-def getM():
-    # imgpoints = [[260.0, 170.0], [261.0, 207.0], [263.0, 245.0], [264.0, 284.0], [266.0, 322.0], [268.0, 360.0], [268.0, 399.0], [270.0, 436.0], [300.0, 169.0], [301.0, 207.0], [303.0, 245.0], [303.0, 283.0], [304.0, 321.0], [306.0, 359.0], [308.0, 397.0], [310.0, 435.0], [196.0, 278.0], [339.0, 205.0], [340.0, 243.0], [340.0, 282.0], [342.0, 320.0], [345.0, 358.0], [345.0, 396.0], [346.0, 434.0]]
-    # objpoints =  [[90.0, -100.0], [110.0, -100.0], [130.0, -100.0], [150.0, -100.0], [170.0, -100.0], [190.0, -100.0], [210.0, -100.0], [230.0, -100.0], [90.0, -80.0], [110.0, -80.0], [130.0, -80.0], [150.0, -80.0], [170.0, -80.0], [190.0, -80.0], [210.0, -80.0], [230.0, -80.0], [90.0, -60.0], [110.0, -60.0], [130.0, -60.0], [150.0, -60.0], [170.0, -60.0], [190.0, -60.0], [210.0, -60.0], [230.0, -60.0]]
-    
-    # imgpoints, objpoints = get_data_txt(dir)
-    objpoints = pickle.load(open("obj_points.pkl","rb"))
-    imgpoints = pickle.load(open("img_points.pkl","rb"))
-    
-    imgpoints = np.array(imgpoints,dtype='float32')
-    objpoints = np.array(objpoints,dtype='float32')
-    # convert shape to satisfy cv2.estimateAffine2D's shape check
-    if objpoints.ndim == 2:
-        objpoints = objpoints[None,:,:2]
-    if imgpoints.ndim == 2:
-        imgpoints = imgpoints[None,:,:2]
-    matrix_img2arm, _ = cv2.estimateAffine2D(imgpoints, objpoints,True)
-    matrix_arm2img, _ = cv2.estimateAffine2D(objpoints, imgpoints,True)
-    return matrix_img2arm, matrix_arm2img
-
-
-def c2b(M, cam_points):                             # camera  to  board
-    if isinstance(cam_points,tuple):
-        np.array(cam_points)
-    cam_points = np.reshape((1,2))
-    assert cam_points.shape == (1,2)
-    assert M.shape == (2,3)
-    # R = M[:,:2]
-    # T = M[:,2]
-    cam_points = np.float32(cam_points)
-    board_points = (M @ np.hstack((cam_points, np.ones((len(cam_points), 1)))).T).T
-    return board_points
-
-def b2c(Mn, board_points):                          # board  to  camera
-    assert Mn.shape == (2,3)
-    board_points = np.array(board_points, dtype='float32')
-    board_points = np.expand_dims(board_points, axis=0)
-    # Mn = np.linalg.inv(M) # 求逆
-    cam_points = (Mn @ np.hstack((board_points, np.ones((len(board_points), 1)))).T).T
-    return cam_points.tolist()
+# def get_data_txt(dir='data.txt'):                   # 按照 [imgpoints0, imgpoints1, objpoints0, objpoints1, objpoints2] 的原则读取txt.
+#     f = open(dir, 'r')
+#     imgpoints = []
+#     objpoints = []
+#     for lines in f:
+#         ls = lines.strip('\n').replace(' ','').replace('、','/').replace('?','').split(',')
+#         print("img/n", imgpoints)
+#         print("obj/n", objpoints)
+#         imgpoints.append([float(ls[0]), float(ls[1])])
+#         objpoints.append([float(ls[2]), float(ls[3]), float(ls[4])])
+#     return imgpoints, objpoints
 
 
 def autocali2():                                    # 用于机械臂的自动标定。每一次让机械臂选择一个位置，放置物块，保存当前的机械臂坐标。
@@ -111,22 +64,20 @@ def autocali2():                                    # 用于机械臂的自动�
     objpoints = []
     imgpoints = []
     allpoints = []                          # allpoints用于存储适合放入神经网络的坐标。格式：[obj0,obj1,obj2,img0,img1]
-    epoch = 10
-    coords = gen_coords(epoch)                          # 随机生成放置的四个坐标list
+    coords = gen_coords()                          # 随机生成放置的四个坐标list
     print("---------------init camera---------------")
     pipeline, align = initial_camera()
 
     print("-------------init the arm----------------")
-    robot = arm_init()
+    robot_id = 18
+    robot = MyRobot(robot_id)
 
     ################  开始标定   #################
-    for i in range(epoch): 
-        coord2, rz1= coords[i]                         #随机生成坐标和角度 [x,y,z]coord2  rz1
-        
-        arm_placement(robot, coord2, rz1)                               # 机械臂放置，并返回原位置，准备拍摄
+    for (random_coord, random_rot) in tqdm(coords):         
+        robot.arm_to_coord(random_coord, random_rot, place=True)                       # 机械臂放置，并返回原位置，准备拍摄
 
-        objpoints.append([coord2[0], coord2[1],OBJ_HEIGHT])
-        print("objpoint [{}, {}] no.{}".format(coord2[0], coord2[1], i))
+        objpoints.append([random_coord[0], random_coord[1],OBJ_HEIGHT])
+        print("objpoint [{}, {}]".format(random_coord[0], random_coord[1]))
         color_image,_ = get_curr_image(pipeline, align)                                      # 记录图像
         cv2.imwrite("test.jpg", color_image)
         # get mask
@@ -135,23 +86,17 @@ def autocali2():                                    # 用于机械臂的自动�
         center = get_mask_center(mask)                                                  # 求质心
         imgpoints.append(center)
         # allpoints.append([center[0], center[1], coord2[0], coord2[1], OBJ_HEIGHT])
-        print("imgpoint {} no.{}".format(center, i))
+        print(f"obj_point {random_coord} with img_point {imgpoints}")
         
-        arm_suction(robot, coord2)                               # 机械臂把物体吸起，准备下一回合。
-        # np.savetxt('data.txt', allpoints, delimiter=',')
+        robot.arm_to_coord(random_coord, random_rot, place=False)  # 机械臂把物体吸起，准备下一回合。
+        pickle.dump(objpoints,open("obj_points.pkl","wb"))
+        pickle.dump(imgpoints,open("img_points.pkl","wb"))
 
-    # np.savetxt('data_test.txt', allpoints, delimiter=',')
     pickle.dump(objpoints,open("obj_points.pkl","wb"))
     pickle.dump(imgpoints,open("img_points.pkl","wb"))
     print("points saved.")
 
 
-def arm_suction_img(robot, M,img_coord):
-    world_coord = c2b(M, img_coord)
-    coord1 = np.array([world_coord[0],world_coord[1],OBJ_HEIGHT])
-    arm_suction(robot, coord1, rz2=0)  
-
 
 if __name__ == "__main__":
-    # autocali2()
-    getM()
+    autocali2()
