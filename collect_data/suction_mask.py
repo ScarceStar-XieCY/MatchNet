@@ -221,7 +221,7 @@ def get_each_suction_coord(mask_list,visual:bool,visual_image):
 def get_each_domain(color_label):
     """Get each domain."""
     each_domain_mask_list = []
-    for i in range(color_label.max()):
+    for i in range(color_label.max()+1):
         one_color_mask = np.where(color_label==i, 255, 0).astype("uint8")
         each_mask_list = get_each_mask(one_color_mask)
         for each_mask in each_mask_list:
@@ -237,9 +237,9 @@ def get_each_domain(color_label):
 def get_obj_coord_with_mask_2d(compare_depth,depth_image, color_image, obj_num):
     seg_result = get_obj_mask_in_kit(compare_depth,depth_image, color_image)
     # get all obj in kit
-    color_obj = apply_mask_to_img(seg_result, color_image, False, True,"seg_result")
+    color_obj = apply_mask_to_img(seg_result, color_image, False, False,"seg_result")
     # segment each color, 2 means background and eye
-    color_label = seg_color_by_kmeans(color_obj, obj_num, "bgr", [0,1,2], visual=False)
+    color_label = seg_color_by_kmeans(color_obj, obj_num, "bgr", [0,1,2], visual=True)
     color_label= np.where(seg_result, color_label, -1) 
     each_domain_mask_list = get_each_domain(color_label)
     obj_coord = get_each_suction_coord(each_domain_mask_list, visual=True,visual_image=color_image)
@@ -271,14 +271,6 @@ def test_inner_circle():
             color_image = cv2.imread(os.path.join(data_root,data_type,  f"color{i}.png"))
             obj_coord,mask_list = get_obj_coord_with_mask_2d(compare_depth,depth_image, color_image, obj_num)
             cv2.waitKey()
-            # while len(obj_coord) != 0:
-            #     random_idx = random.randrange(0,len(obj_coord))
-            #     selected_point = obj_coord.pop(random_idx)
-            #     print("len(obj_coord) = ",len(obj_coord))
-            #     # fake move
-            #     obj_num -= 1
-            #     print("obj_num = ",obj_num)
-            
          
         # placement stage
 

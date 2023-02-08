@@ -1,4 +1,3 @@
-import numpy as np
 import os
 import sys
 sys.path.append(os.getcwd())
@@ -8,6 +7,7 @@ from collect_data.suction_mask import kmeans_image
 import cv2
 import logging
 import pickle
+import numpy
 logger = logging.getLogger(__name__)
 
 KIT_PIECE = {"bear":6,"bug":4,"bug_rev":4,"butterfly":5, "butterfly_rev":5,"rabbit":4,"whale":5,"car":7,"paint":1,}
