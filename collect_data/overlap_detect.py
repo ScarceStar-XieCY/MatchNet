@@ -12,7 +12,7 @@ from collect_data.suction_mask import get_obj_coord_with_mask_2d
 import logging
 
 logger = logging.getLogger(__file__)
-DILATE_ITER = 5 
+DILATE_ITER = 3 
 
 def _diff_mask(in_kit_img,out_kit_img,visual):
     """Get diff for ovrelap detect"""
@@ -37,7 +37,7 @@ def find_coord_to_place(robot,mask, coord):
     while True:
         # random_place_3d = gen_coords(method = "random",epoch = 1) #TODO:robot rndom
         random_place_2d = random_coord()
-        random_theta = np.random.uniform(0,360)
+        random_theta = np.random.uniform(0,90)
         # random_place_2d = robot.b2c(random_place_3d)
         logger.warning("suc coord = %s, place_coord = %s, rot:%s",coord, random_place_2d, random_theta)
         if  not detector.detect_overlap(mask, random_theta, coord, random_place_2d):
@@ -94,7 +94,7 @@ if __name__ == "__main__":
     file_name_list = os.listdir(os.path.join(data_root,data_type))
     step_num = len(file_name_list) // 3
     compare_depth  =  cv2.imread(os.path.join("20221029test_compare",data_type,f"depth0.png"), cv2.IMREAD_GRAYSCALE)
-    obj_num= 7 # kit obj num +2
+    obj_num= 5 # kit obj num +2
     kit_count = 0
     detector = OverlapDetector(compare_depth.shape) 
     while True:
@@ -108,8 +108,8 @@ if __name__ == "__main__":
         print(i)
         depth_image = cv2.imread(os.path.join(data_root,data_type,  f"depth{i}.png"), cv2.IMREAD_GRAYSCALE)
         color_image = cv2.imread(os.path.join(data_root,data_type,  f"color{i}.png"))
-        obj_coord,mask_list = get_obj_coord_with_mask_2d(compare_depth,depth_image, color_image, obj_num)
-        assert len(obj_coord) == obj_num - 2
+        obj_coord,mask_list = get_obj_coord_with_mask_2d(compare_depth,depth_image, color_image, obj_num+2,obj_num)
+        assert len(obj_coord) == obj_num
         for (uv_coord,radius),mask in zip(obj_coord,mask_list):
             find_coord_to_place(None,mask, uv_coord)
         detector.reset()
