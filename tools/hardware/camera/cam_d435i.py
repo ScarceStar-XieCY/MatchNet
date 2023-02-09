@@ -13,9 +13,14 @@ import pyrealsense2 as rs
 import numpy as np
 import cv2
 import time
+import os
 import json
 from torchvision import transforms
 from collections import Counter
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def find_device_that_supports_advanced_mode() :
     DS5_product_ids = ["0AD1", "0AD2", "0AD3", "0AD4", "0AD5", "0AF6", "0AFE", "0AFF", "0B00", "0B01", "0B03", "0B07",
@@ -162,12 +167,14 @@ def initial_camera():
     align_to = rs.stream.color
     align = rs.align(align_to)
 
+    get_curr_image(pipeline, align,init=True)
+
     return pipeline,align
 
-def get_curr_image(pipeline,align):
+def get_curr_image(pipeline,align, init=False,depth_post_proc = True):
 
     decimation_scale = 1
-    wait_frame_count = 2
+    wait_frame_count = 20
     decimation, spatial, temporal, hole_filling, depth_to_disparity, disparity_to_depth = filters_config(decimation_scale)
     # colorizer = rs.colorizer(color_scheme=3)
     while True:
@@ -186,22 +193,23 @@ def get_curr_image(pipeline,align):
             continue
 
         #guaratee that depth frames are useable
-        aligned_depth_data = np.asanyarray(aligned_depth_frame.get_data()).astype('uint8')
-        # if Counter(aligned_depth_data.ravel())[0] > 0.2 * 848 * 480: 
-        #     continue
+        depth_image = np.asanyarray(aligned_depth_frame.get_data()).astype('uint8')
+        h,w = depth_image.shape[:2]
+        if init and Counter(depth_image.ravel())[0] > 0.2 * h * w: 
+            continue
 
-        #再等待30帧，图片亮度会有提升
-        if wait_frame_count > 0:
+        #再等待20帧，图片亮度会有提升
+        if init and wait_frame_count > 0:
             wait_frame_count = wait_frame_count - 1 
             continue
-        
-        processed_frame = depth_processing(aligned_depth_frame, decimation, spatial, temporal, hole_filling, depth_to_disparity, disparity_to_depth)
-        # processed_depth = processed_frame.as_depth_frame()
-        depth_image = np.asanyarray(processed_frame.get_data())
+        if depth_post_proc:
+            processed_frame = depth_processing(aligned_depth_frame, decimation, spatial, temporal, hole_filling, depth_to_disparity, disparity_to_depth)
+            # processed_depth = processed_frame.as_depth_frame()
+            depth_image = np.asanyarray(processed_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
 
         # Remove background - Set pixels further than clipping_distance to grey
-        depth_image = aligned_depth_data.astype('uint8')
+        depth_image = depth_image.astype('uint8')
         color_image = color_image.astype('uint8')
         
         # if depth_image.ndim == 3:
@@ -245,12 +253,46 @@ def norm_img(color_image,depth_image):
 
     return color_norm,depth_norm
 
-if __name__ == '__main__':
+
+def debug_for_calibration():
     pipeline,align = initial_camera()
-    get_curr_image(pipeline, align)
-    print('1:',time.time())
-    #img2 = get_curr_image(pipeline,align,clipping_distance)
-    #print('1:', time.time())
-    #img3 = get_curr_image(pipeline,align,clipping_distance)
-    #print('1:', time.time())
-    #print(img1.shape,img2.shape,img3.shape)
+    time.sleep(1)
+    root = "calib"
+    if not os.path.exists(root):
+        os.makedirs(root)
+    i = 0
+    while True:
+        color_img, depth_img = get_curr_image(pipeline, align)
+        cv2.imshow("color", color_img)
+        cv2.waitKey()
+        cv2.imwrite(os.path.join(root,f"color{i}.png"),color_img)
+        cv2.imwrite(os.path.join(root,f"depth{i}.png"),depth_img)
+        i +=1
+
+def debug_for_collection():
+    pipeline,align = initial_camera()
+    # time.sleep(0.5)
+    # compare_color, compare_depth = get_curr_image(pipeline,align)
+
+    # cv2.imshow("init",compare_color)
+    # cv2.waitKey()
+    # time.sleep(0.5)
+    root = "collection_debug_plastic2"
+    if not os.path.exists(root):
+        os.makedirs(root)
+    i = 0
+    compare_color, compare_depth = get_curr_image(pipeline,align)
+    cv2.imwrite(os.path.join(root,"compare_color.png"),compare_color)
+    cv2.imwrite(os.path.join(root,"compare_depth.png"),compare_depth)
+    cv2.imshow("compare",compare_depth)
+    cv2.waitKey()
+    while True:
+        color_img, depth_img = get_curr_image(pipeline, align)
+        cv2.imshow("color", color_img)
+        cv2.waitKey()
+        cv2.imwrite(os.path.join(root,f"color{i}.png"),color_img)
+        cv2.imwrite(os.path.join(root,f"depth{i}.png"),depth_img)
+        i +=1
+
+if __name__ == '__main__':
+    debug_for_collection()
