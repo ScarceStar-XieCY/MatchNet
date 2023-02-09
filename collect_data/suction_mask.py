@@ -107,8 +107,6 @@ def seg_color_by_grabcut(color_image, pre_mask, color_space:str = "hsv",visual:b
     grabcut_mask = remove_big_area(grabcut_mask, 10000, False, "")
     if visual:
         cv2.imshow("grabcut_after_process", grabcut_mask)
-    cv2.waitKey() 
-
     return grabcut_mask
 
 def seg_depth_by_time(init_image, final_image):

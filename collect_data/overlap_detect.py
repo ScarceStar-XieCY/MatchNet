@@ -81,7 +81,7 @@ class OverlapDetector:
             return False
     
     def reset(self):
-        logger.warning("reset")
+        logger.warning("overlap_detector reset")
         self._obj_mask = np.zeros_like(self._obj_mask,dtype = np.uint8)
         self._cur_obj_mask = None
 

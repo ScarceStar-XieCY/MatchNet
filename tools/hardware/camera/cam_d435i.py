@@ -149,7 +149,7 @@ def initial_camera():
         exit(0)
 
     
-    jsonfilepath = './HighDensityPreset.json'
+    jsonfilepath = os.path.join("tools","hardware","camera","HighDensityPreset.json")
     set_advanced_mode_from_json(jsonfilepath)
 
 
