@@ -112,6 +112,18 @@ def largest_cc(mask,bol2img):
         largest = np.array(largest).astype('uint8')*255
     return largest
 
+def smallest_cc_with_zero(mask,bol2img):
+    '''
+    选出最小的连通域
+    :param mask:一张图
+    :param bol2mask
+    :return: bool类型的矩阵,true部分对应的就是最大连通域
+    '''
+    labels = label(mask)
+    smallest = labels == np.argmin(np.bincount(labels.flat))
+    if bol2img:
+        smallest = np.array(smallest).astype('uint8')*255
+    return smallest
 
 def remove_scattered_pix(mask,th,visual):
     #去除只有th个像素的连通域而不影响其他内容
@@ -133,7 +145,7 @@ def mask2bbox(mask):
     return rmin, rmax, cmin, cmax
 
 
-def remove_surrounding_white(mask,visual):
+def remove_surrounding_white(mask,visual,min_domain_num:int = 1):
     '''
     在mask中,去掉贴着图像边缘的白色部分（通常是背景）
     :param mask:处理前的mask
@@ -145,7 +157,7 @@ def remove_surrounding_white(mask,visual):
     if visual:
         cv2.imshow('labels going to remove_surrounding_white',(labels*40).astype('uint8'))
     num = np.max(labels)
-    if num > 1:#如果只有一个连通域,不需要处理
+    if num > min_domain_num:#目前连通域数量大于设定值
         for i in range(num):
             domain = np.where(labels==i+1,1,0)
             if visual:
@@ -436,7 +448,7 @@ def draw_lines(lines, mask, color, width, visual, message):
 
 
 def get_each_mask(mask):
-    labels = label(mask,connectivity=2)
+    labels = label(mask,connectivity=1)
     num = np.max(labels) #背景+白色连通域个数
     each_mask_list = []
     for i in range(1, num+1):
@@ -506,7 +518,7 @@ def get_max_inner_circle(mask, visual):
     return max_idx, max_val
 
 
-def apply_mask_to_img(mask,imgs,color2gray,visual, mask_info):
+def apply_mask_to_img(mask,imgs,color2gray:bool,visual:bool, mask_info:str):
     '''
     用mask把img_list中的图像分割出来,其中mask=0的位置全涂黑,否则使用原图像素值
     :param mask: 二维的二值mask
