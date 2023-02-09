@@ -14,11 +14,7 @@ from torch import int32
 from tools.hardware.arm.pump import pump_off
 import logging
 import pickle
-# from walle.core import RotationMatrix
-# from HitbotInterface import HitbotInterface
-# from form2fit.code.utils import analyse_shape
-# from form2fit.code.utils import get_center
-# from form2fit.code.get_align_img import initial_camera,get_curr_image
+
 logger = logging.getLogger(__file__)
 RESET_COORD = (-104,277,-90)
 HEIGHT_OF_KIT_OBJ_WOODEN = -110
@@ -46,8 +42,6 @@ class MyRobot():
             self.get_matrix()
     
     def arm_init(self, robot_id):
-        # robot_id = 18
-        # box_pos = [-58.66, 309.92, -39]            # 不遮挡相机拍摄的机械臂位置，每次结束放置后移动至该位置。
         robot = HitbotInterface(robot_id)
         while robot.net_port_initial() != 1:
             logger.warning("Check port 40000.")
@@ -63,13 +57,6 @@ class MyRobot():
         while robot.unlock_position() != 1:
             logger.warning("robot is not unlocked yet.")
         logger.warning("Robot init successfully.")
-
-        
-        # a = robot.new_movej_xyz_lr(box_pos[0], box_pos[1], -34, 0, speed=120, roughly=0, lr=1)
-        # robot.wait_stop()
-        # print("robot statics is {}".format(a))
-        # if a == 1: print("the robot is ready for the collection.")
-        # time.sleep(0.5)
         return robot
 
     def arm_reset_pos(self):
