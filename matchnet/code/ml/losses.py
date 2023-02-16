@@ -129,7 +129,7 @@ class CorrespondenceLoss(BaseLoss):
             out_s_flat = out_s[correct_rot_idx:correct_rot_idx+1].view(1, D, H*W).permute(0, 2, 1)
             match_s_descriptors = torch.index_select(out_s_flat, 1, s_idxs_f).squeeze(0)
             match_t_descriptors = torch.index_select(out_t_flat, 1, t_idxs_f).squeeze(0)
-            match_loss += self._sq_l2(match_s_descriptors, match_t_descriptors)
+            match_loss += (self._sq_l2(match_s_descriptors, match_t_descriptors) / len(s_idxs))
         match_loss /= batch_size
         return match_loss
 
@@ -171,11 +171,11 @@ class CorrespondenceLoss(BaseLoss):
                         if des_s.ndimension() < 2:
                             des_s.unsqueeze_(0)
                             des_t.unsqueeze_(0)
-                    non_match_loss += self._sq_hinge_loss(des_s, des_t)
+                    non_match_loss += (self._sq_hinge_loss(des_s, des_t) / len(s_idxs))
             else:
                 non_match_s_descriptors = torch.cat(non_match_s_descriptors, dim=0)
                 non_match_t_descriptors = torch.cat(non_match_t_descriptors, dim=0)
-                non_match_loss += self._sq_hinge_loss(non_match_s_descriptors, non_match_t_descriptors)
+                non_match_loss += (self._sq_hinge_loss(non_match_s_descriptors, non_match_t_descriptors) / len(s_idxs))
         non_match_loss /= batch_size
         return non_match_loss
 
@@ -191,7 +191,7 @@ class CorrespondenceLoss(BaseLoss):
         non_match_loss = self._negative_corrs(outs_s, outs_t, labels)
         if self.sample_ratio is not None:
             assert not np.isclose(self.sample_ratio, 0.0), "[!] Sample ratio cannot be zero."
-            loss = (self.sample_ratio * match_loss) + non_match_loss
+            loss = match_loss + self.sample_ratio * non_match_loss
         return loss
 
 

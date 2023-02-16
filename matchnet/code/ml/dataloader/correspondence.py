@@ -199,7 +199,7 @@ class CorrespondenceDataset(Dataset):
         source_corrs = corrs[:, 0:2]
         target_corrs = corrs[:, 2:4]
 
-        # rotate source indices
+        # rotate source indices #TODO：check roation destination
         source_idxs = misc.rotate_uv(source_corrs, -self._rot_step_size * rot_idx, self._H, self._W, (self._uc, self._vc))
         target_idxs = np.round(target_corrs)
 
@@ -265,6 +265,8 @@ class CorrespondenceDataset(Dataset):
         return valid_idxs
 
     def _sample_translation(self, corrz, angle):
+        # calculate valid offset range of translation, then selected one from it.
+        # vailid range [10:-10]
         aff_1 = np.eye(3)
         aff_1[:2, 2] = [-self._uc, -self._vc]
         aff_2 = gen_rot_mtx_anticlockwise(-angle)
@@ -297,8 +299,9 @@ class CorrespondenceDataset(Dataset):
             if t[:, 0].min() < min_uu:
                 min_uu = t[:, 0].min()
                 min_uv = t[t[:, 0].argmin()][1]
-        tu = np.random.uniform(-min_vv + 10, self._W - max_vv - 10)
-        tv = np.random.uniform(-min_uu + 10, self._H - max_uu - 10)
+        #  
+        tv = np.random.uniform(-min_vv + 10, self._W - max_vv - 10)
+        tu = np.random.uniform(-min_uu + 10, self._H - max_uu - 10)
         return tu, tv
 
     def __getitem__(self, idx):
@@ -367,7 +370,7 @@ class CorrespondenceDataset(Dataset):
             aff_1 = np.eye(3)
             aff_1[:2, 2] = [-self._vc, -self._uc]
             aff_2 = gen_rot_mtx_anticlockwise(angle_s)
-            aff_2[:2, 2] = [tu_s, tv_s]
+            aff_2[:2, 2] = [tv_s, tu_s]
             aff_3 = np.eye(3, 3)
             aff_3[:2, 2] = [self._vc, self._uc]
             affine_s = aff_3 @ aff_2 @ aff_1
@@ -389,7 +392,7 @@ class CorrespondenceDataset(Dataset):
             aff_1 = np.eye(3)
             aff_1[:2, 2] = [-self._vc, -self._uc]
             aff_2 = gen_rot_mtx_anticlockwise(angle_t)
-            aff_2[:2, 2] = [tu_t, tv_t]
+            aff_2[:2, 2] = [tv_t, tu_t]
             aff_3 = np.eye(3, 3)
             aff_3[:2, 2] = [self._vc, self._uc]
             affine_t = aff_3 @ aff_2 @ aff_1
@@ -462,6 +465,7 @@ class CorrespondenceDataset(Dataset):
         kit_minus_hole_source_1d = sampling.make1d(kit_minus_hole_mask, self._W)
         kit_plus_hole_source_1d = sampling.make1d(kit_plus_hole_mask, self._W)
         background_source_1d = np.array(list(set(all_idxs_1d) - set(kit_plus_hole_source_1d)))
+        # remove the part of box of kit
         background_source_1d = sampling.remove_outliers(background_source_1d, kit_plus_hole_mask, self._W)
 
         # sample non-matches
