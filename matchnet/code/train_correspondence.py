@@ -141,7 +141,7 @@ if __name__ == "__main__":
             out_s, out_t = model(imgs,centers[0][0], centers[0][1])
             optimizer.zero_grad()
             match_loss, no_match_loss = criterion(out_s, out_t, cuda_labels) #TODO:check output shape and split
-            loss = (sample_ratio * match_loss) + no_match_loss
+            loss =  match_loss + sample_ratio * no_match_loss
             loss.backward()
             optimizer.step()
             train_epoch_loss.append(loss.item())
