@@ -24,8 +24,8 @@ warnings.filterwarnings("ignore")
 from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
 import logging
-
-EXP_NAME="bear_3_32"
+  
+EXP_NAME="mix_1_32"
 SEED=666
 tb_path = './tb_log_corres_' + EXP_NAME
 if not os.path.exists(tb_path):

@@ -187,8 +187,15 @@ def validation_correspondence(dloader,model,device, num_subsample=None,interval=
     return prec_dict
 
 
+def recursive_read(input, all_key):
+    if isinstance(input, dict):
+        for key, value in input.items():
+            recursive_read(value, all_key + "_" + key)
+    else:
+        print(all_key, input)
 
 def main(args):
+    print("evaluate ", args.model_path, "at dataset", args.foldername)
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
     save_dir = os.path.join("../dump/")
@@ -219,14 +226,15 @@ def main(args):
     # load model
     model = CorrespondenceNet(num_channels, 64, 20).to(device)
     # state_dict = torch.load(os.path.join(config.weights_dir, "matching", args.foldername + ".tar"), map_location=device)
-    state_dict = torch.load("matchnet/code/ml/savedmodel/mix0128_2/corrs_epoch84.pth", map_location=device)
+    state_dict = torch.load(args.model_path, map_location=device)
     model.load_state_dict(state_dict["model"])
     model.eval()
 
     estimated_poses = []
     correct = 0
 
-    validation_correspondence(dloader,model,device,args.subsample,args.interval)
+    pred_dict = validation_correspondence(dloader,model,device,args.subsample,args.interval)
+    recursive_read(pred_dict,"")
     # for idx, (imgs, labels, center) in enumerate(tqdm(dloader)):
     #     # print("{}/{}".format(idx+1, len(dloader)))
     #     if idx % 10 != 0:
@@ -366,6 +374,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate Form2Fit Matching Module on Benchmark")
     parser.add_argument("--foldername", type=str, help="The name of the dataset.",default="../datasets_mix0128")
+    parser.add_argument("--model_path", type=str, help="Path to model.",default="matchnet/code/ml/savedmodel/mix0128_2/corrs_epoch199.pth")
     parser.add_argument("--dtype", type=str, default="train")
     parser.add_argument("--subsample", type=int, default=16)
     parser.add_argument("--interval", type=int, default=20)

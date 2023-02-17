@@ -108,7 +108,7 @@ class CorrespondenceLoss(BaseLoss):
         """Computes match loss.
         """
         # TODO：debug to see shape
-        batch_size = len(labels) # 21?
+        batch_size = len(labels) # list,(N,6)
         match_loss = zero_loss(self._device)
         for b_idx, label in enumerate(labels):
             mask = torch.all(label == torch.LongTensor([999]).repeat(6).to(self._device), dim=1)
