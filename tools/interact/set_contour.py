@@ -20,92 +20,6 @@ DICT_NAME_LIST = ["kit_mask",]
 DICT_SUFFIX = "_dict.pkl"
 
 
-def calculate_angle(pt1:tuple, pt2:tuple,):
-    """Under opencv xy coord. X ---> clockwise is positive. pt1 is origin coord."""
-    delta_y = pt2[1] - pt1[1]
-    delta_x = pt2[0] - pt1[0]
-    angle = - np.arctan2(delta_y,delta_x)
-    return angle
-
-def draw_point_on_img(image:np.ndarray,pt:tuple,color):
-    """Draw point on image."""
-    cv2.circle(image,pt,3,color,2)
-
-def draw_points_on_img(image, pt_list,color:tuple=(0,255,0)):
-    for pt in pt_list:
-        draw_point_on_img(image, pt,color)
-
-def draw_lines_on_image(image, pt_list):
-    for i in range(0,len(pt_list)-1,2):
-        draw_line_between_pts(image, pt_list[i],pt_list[i+1])
-
-                
-def calculate_angles(pt_list):
-    angle_list = []
-    for i in range(1,len(pt_list) ,2):
-        angle = calculate_angle(pt_list[i],pt_list[i-1])
-        angle_list.append(angle)
-    return angle_list
-
-def calculate_diff_angle(angle_list):
-    delta_angle = angle_list[1] - angle_list[0]
-    return delta_angle
-
-def update_delta_angle(angle_list, angle_dict, image_path):
-    # update dict when enough angle
-    if len(angle_list) != 2:
-        return None
-    logger.info("angle list to put text %s", angle_list)
-    delta_angle = calculate_diff_angle(angle_list)
-    delta_angle = 180 * delta_angle / np.pi
-    angle_dict[image_path] = delta_angle
-    logger.info("angle = %s, for  %s", delta_angle,image_path)
-    return delta_angle
-
-def text_delta_angle(image_path, angle_dict, image):
-    """Show text info of delta angle."""
-    if angle_dict.get(image_path,None) is None:
-        return
-    delta_angle = angle_dict[image_path]
-    cv2.putText(image,f"delta_angle = {delta_angle}",(50,50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0))
-
-
-def draw_line_between_pts(image:np.ndarray,pt1:tuple,pt2:tuple):
-    """Drawn line on image."""
-    cv2.line(image, pt1,pt2,(0,255,0),1)
-
-
-def update_corres_mask(image_path, obj_mask_dict, corres_dict,center_dict, delta_angle,is_degree):
-    """"""
-    if delta_angle is None:
-        return
-    obj_out_kit_mask, obj_in_kit_mask = obj_mask_dict[image_path]
-    center_out_kit, center_in_kit = center_dict[image_path]
-    # correspond mask
-    obj_corres_in_kit_coord = rigid_trans_mask_around_point(obj_out_kit_mask, delta_angle, center_out_kit[::-1], center_in_kit[::-1],is_degree=is_degree) 
-    # fill cavity and get correspond point
-    h , w = obj_out_kit_mask.shape[:2]
-    cavity_coord = find_cavity(obj_corres_in_kit_coord, h,w) # cavity coord in left obj mask
-    
-    # the correspond coord to cavity in the left obj mask
-    cavity_reverse_coord= reverse_get_corres(cavity_coord, delta_angle, center_out_kit[::-1], center_in_kit[::-1], is_degree=is_degree) 
-    # cancatenace cavity corresponding coord in obj in& out of kit respectly.
-    obj_complete_coord_in_kit = np.concatenate([obj_corres_in_kit_coord, cavity_coord], axis = 0)
-    obj_corrs_coord_out_kit = np.concatenate([mask2coord(obj_out_kit_mask,need_xy=False),cavity_reverse_coord], axis = 0)
-    assert len(obj_complete_coord_in_kit) == len(obj_corrs_coord_out_kit)
-    # coord2mask(np.concatenate([obj_complete_coord_in_kit, obj_corrs_coord_out_kit],axis =0),h,w,False)
-    corres_dict[image_path] = [obj_corrs_coord_out_kit, obj_complete_coord_in_kit] # left right
-    
-
-def draw_corres_mask(image_path, corres_dict, h,w, image):
-    if corres_dict.get(image_path,None) is None:
-        return
-    mask1_corrd, mask2_coord = corres_dict[image_path]
-    mask1 = coord2mask(mask1_corrd,h,w,False)
-    mask2 = coord2mask(mask2_coord,h,w,False)
-    corres_mask = get_union(mask1, mask2, False,"")
-    put_mask_on_img(corres_mask,image.copy(),True,"corres mask")
-
 
 def draw_poly(image, pt_list,visual):
     pt_array = np.array(pt_list)
@@ -125,7 +39,6 @@ def window_react(event,x,y,flags,param):
         logger.info("Delete point (%s,%s)",x,y)
     if event == cv2.EVENT_LBUTTONDOWN or event == cv2.EVENT_RBUTTONDOWN:
         img = image.copy()
-        draw_points_on_img(img, pt_list)
         kit_coord = draw_poly(img, pt_list, True)
         param[-1] = kit_coord
         cv2.imshow(window_name, img)
@@ -164,14 +77,14 @@ def label_one_image(on_mouse_param,):
             kit_mask[image_path]= last_kit_mask
             return 0
         # confirm save
-        if key == ord("s") and len(pt_list) == 4:
+        if key == ord("s") and len(pt_list) >= 4:
             kit_mask[image_path] = param[-1]
             return 0
         # quit
         if key == ord("q"):
             cv2.destroyWindow(window_name)
             return 1
-        if len(pt_list) != 4:
+        else: #  len(pt_list) <4:
             print("len of pt",len(pt_list))
             logger.warning("No enough pt. %s", pt_list)
         
@@ -262,7 +175,7 @@ if __name__ == "__main__":
     kit_mask = dict_list[0]
 
     window_name = "angle_label"
-    skip_kit = ["bee","bee_rev"]
+    skip_kit = ["bear","bee","bee_rev","butterfly","bug","bug","butterfly","car","circle_square","column","math","paint"]
     for root_dir_name, dir_list, file_list in os.walk(dir_path):
         ret_status = None
         last_kit_mask = None
@@ -281,6 +194,7 @@ if __name__ == "__main__":
             # get diff and calculate mask 
             show_image = cv2.addWeighted(pre_image,0.5, cur_image, 0.5, 0)
             param = [cur_image,window_name, pt_list, cur_image_path, kit_mask, last_kit_mask]
+            logger.warning("label %s",cur_image_path)
             ret_status = label_one_image(param)
             if kit_mask.get(cur_image_path,None) is not None:
                 last_kit_mask = kit_mask[cur_image_path]

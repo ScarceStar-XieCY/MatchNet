@@ -27,19 +27,18 @@ def get_mean_std(dirname, norm_info):
     return norm_info
 
 if __name__ == "__main__":
-    kit_dir = os.path.join("20230108","datasets","bear")
-    dirlist = os.listdir(kit_dir)
-    # print(dirlist)
     color_mean_sum = 0
     depth_mean_sum = 0
     color_std_sum = 0
     depth_std_sum = 0
     norm_info = {}
-    for dirname in dirlist:
-        dirname = os.path.join(os.path.join(kit_dir,dirname))
-        if os.path.isdir(dirname):
-            # print(dirname)
-            # dirname = os.path.join(cfg.data_root,cfg.data_type,dirname)
+
+    root_dir = os.path.join("20230108","datasets_bear")
+    for root_name, dir_list, file_list in os.walk(root_dir):
+        if "train" in dir_list:
+            continue
+        for time_dir in dir_list:
+            dirname = os.path.join(root_name, time_dir)
             norm_info = get_mean_std(dirname,norm_info)
 
     for key, norm_value in norm_info.items():
@@ -53,9 +52,8 @@ if __name__ == "__main__":
                 assert mean_metric.ndim == 1
                 norm_info[key][metric_name] = list(mean_metric)
 
-    with open(os.path.join(kit_dir,'mean_std.pkl'), 'wb') as file:
+    with open(os.path.join(root_dir,'mean_std.pkl'), 'wb') as file:
         pickle.dump(norm_info, file)
 
-    # with open(os.path.join('./demo', 'mean_std_old.p'), 'rb') as file:
-    #     data = pickle.load(file)
-    #     print(data)
+    # with open(os.path.join(root_dir,'mean_std.pkl'), 'rb') as file:
+    #     a = pickle.load(file)

@@ -112,6 +112,18 @@ def largest_cc(mask,bol2img):
         largest = np.array(largest).astype('uint8')*255
     return largest
 
+def smallest_cc_with_zero(mask,bol2img):
+    '''
+    选出最小的连通域
+    :param mask:一张图
+    :param bol2mask
+    :return: bool类型的矩阵,true部分对应的就是最大连通域
+    '''
+    labels = label(mask)
+    smallest = labels == np.argmin(np.bincount(labels.flat))
+    if bol2img:
+        smallest = np.array(smallest).astype('uint8')*255
+    return smallest
 
 def remove_scattered_pix(mask,th,visual):
     #去除只有th个像素的连通域而不影响其他内容
@@ -133,7 +145,7 @@ def mask2bbox(mask):
     return rmin, rmax, cmin, cmax
 
 
-def remove_surrounding_white(mask,visual):
+def remove_surrounding_white(mask,visual,min_domain_num:int = 1):
     '''
     在mask中,去掉贴着图像边缘的白色部分（通常是背景）
     :param mask:处理前的mask
@@ -145,7 +157,7 @@ def remove_surrounding_white(mask,visual):
     if visual:
         cv2.imshow('labels going to remove_surrounding_white',(labels*40).astype('uint8'))
     num = np.max(labels)
-    if num > 1:#如果只有一个连通域,不需要处理
+    if num > min_domain_num:#目前连通域数量大于设定值
         for i in range(num):
             domain = np.where(labels==i+1,1,0)
             if visual:
@@ -312,7 +324,7 @@ def get_centroid(cnt):
         return -1,-1
     cx = int(M["m10"] / M["m00"])
     cy = int(M["m01"] / M["m00"])
-    return cx,cy
+    return np.array([cx,cy])
 
 
 def get_exter_contours(mask, method = 'none'):
@@ -490,15 +502,15 @@ def get_max_inner_circle(mask, visual):
 
     _, max_val, _, max_idx = cv2.minMaxLoc(raw_dist)
     if max_val < 0:
-        result = cv2.cvtColor(mask,cv2.COLOR_GRAY2BGR)
-        cv2.drawContours(result, [contour], 0, (255,0,0), 2)
-        cv2.imshow('result_max_val < 0', result)
-        cv2.waitKey()
+        # result = cv2.cvtColor(mask,cv2.COLOR_GRAY2BGR)
+        # cv2.drawContours(result, [contour], 0, (255,0,0), 2)
+        # cv2.imshow('result_max_val < 0', result)
+        # cv2.waitKey()
         return None,None
 
     if visual:
         result = cv2.cvtColor(mask,cv2.COLOR_GRAY2BGR)
-        cv2.circle(result,max_idx, np.int(max_val),(0,255,0), 2, cv2.LINE_8, 0)
+        cv2.circle(result,max_idx, int(max_val),(0,255,0), 2, cv2.LINE_8, 0)
         cv2.imshow('result', result)  
     # return circle xy coord and fp32 radius 
     if isinstance(max_idx, tuple):
@@ -506,7 +518,7 @@ def get_max_inner_circle(mask, visual):
     return max_idx, max_val
 
 
-def apply_mask_to_img(mask,imgs,color2gray,visual, mask_info):
+def apply_mask_to_img(mask,imgs,color2gray:bool,visual:bool, mask_info:str):
     '''
     用mask把img_list中的图像分割出来,其中mask=0的位置全涂黑,否则使用原图像素值
     :param mask: 二维的二值mask
@@ -542,22 +554,31 @@ def apply_mask_to_img(mask,imgs,color2gray,visual, mask_info):
         return img
 
 
-def put_mask_on_img(mask, imgs, visual, mask_info):
+def put_mask_on_img(mask, imgs, visual, mask_info,color=(0,0,255)):
     '''
     把半透明的红色mask覆盖在img_list中的所有图像上并（在visual=True时）显示
     :param mask: 二维的二值mask
     :param imgs: 所有图片,可以是单张图片或图片列表
     :param visual: 是否可视化
     :param mask_info:mask相关信息,用以生成不同的mask窗口
+    :param color: bgr通道的颜色，默认只对bgr的r通道赋值,也就是给vis涂上红色
     :return: mask覆盖在图像上的三通道图像或图像列表
     '''
-    mask_vis = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+    def set_mask_vis_color(mask, color):
+        mask_vis = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+        for channel, color_value in enumerate(color):
+            if color_value == 0:
+                continue
+            mask_vis[:,:, channel] = np.where(mask, color_value, 0)
+        return mask_vis
+
+    
     if isinstance(imgs, list):
         put_list = []
         for i, img in enumerate(imgs):
             if is_grayscale(img):
                 img = cv2.cvtColor(img,cv2.COLOR_GRAY2BGR)
-            mask_vis[:, :, 2] = np.where(mask, 255, 0)#只对bgr的r通道赋值,也就是给vis涂上红色
+            mask_vis = set_mask_vis_color(mask, color)#只对bgr的r通道赋值,也就是给vis涂上红色
             mask_on_img = cv2.addWeighted(img, 0.5, mask_vis, 0.5, 0)
             put_list.append(mask_on_img)
             if visual:
@@ -566,7 +587,7 @@ def put_mask_on_img(mask, imgs, visual, mask_info):
     else:
         if is_grayscale(imgs):
             imgs = cv2.cvtColor(imgs, cv2.COLOR_GRAY2BGR)
-        mask_vis[:, :, 2] = np.where(mask, 255, 0)#只对bgr的r通道赋值,也就是给vis涂上红色
+        mask_vis = set_mask_vis_color(mask, color)
         mask_on_img = cv2.addWeighted(imgs, 1, mask_vis, 0.5, 0)
         if visual:
             cv2.imshow('put {} mask on img'.format(mask_info), mask_on_img)
