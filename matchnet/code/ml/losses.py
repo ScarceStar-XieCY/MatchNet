@@ -131,7 +131,7 @@ class CorrespondenceLoss(BaseLoss):
             # select two desc
             match_s_descriptors = torch.index_select(out_s_flat, 1, s_idxs_f).squeeze(0)
             match_t_descriptors = torch.index_select(out_t_flat, 1, t_idxs_f).squeeze(0)
-            match_loss += (self._sq_l2(match_s_descriptors, match_t_descriptors) / len(s_idxs))
+            match_loss += self._sq_l2(match_s_descriptors, match_t_descriptors)
         match_loss /= batch_size
         return match_loss
 
@@ -175,11 +175,11 @@ class CorrespondenceLoss(BaseLoss):
                         if des_s.ndimension() < 2:
                             des_s.unsqueeze_(0)
                             des_t.unsqueeze_(0)
-                    non_match_loss += (self._sq_hinge_loss(des_s, des_t) / len(s_idxs))
+                    non_match_loss += self._sq_hinge_loss(des_s, des_t)
             else:
                 non_match_s_descriptors = torch.cat(non_match_s_descriptors, dim=0)
                 non_match_t_descriptors = torch.cat(non_match_t_descriptors, dim=0)
-                non_match_loss += (self._sq_hinge_loss(non_match_s_descriptors, non_match_t_descriptors) / len(s_idxs))
+                non_match_loss += self._sq_hinge_loss(non_match_s_descriptors, non_match_t_descriptors)
         non_match_loss /= batch_size
         return non_match_loss
 
