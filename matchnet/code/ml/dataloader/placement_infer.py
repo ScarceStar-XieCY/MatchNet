@@ -58,7 +58,7 @@ class PlacementDataset(Dataset):
         else:
             self._c_norm = transforms.Normalize(mean=stats[0][0], std=stats[0][1])
         self._d_norm = transforms.Normalize(mean=stats[1][0], std=stats[1][1])
-        self._transform = transforms.ToTensor()
+        self._to_tensor = transforms.ToTensor()
 
     def __len__(self):
         return len(self._filenames)
@@ -128,8 +128,8 @@ class PlacementDataset(Dataset):
             c_height = np.repeat(c_height[..., np.newaxis], 3, axis=-1)
 
         # convert heightmaps tensors
-        c_height = self._c_norm(self._transform(c_height))
-        d_height = self._d_norm(self._transform(d_height[..., np.newaxis]))
+        c_height = self._c_norm(self._to_tensor(c_height))
+        d_height = self._d_norm(self._to_tensor(d_height[..., np.newaxis]))
 
         # concatenate height and depth into a 4-channel tensor
         # img_tensor = torch.cat([c_height, d_height], dim=0)

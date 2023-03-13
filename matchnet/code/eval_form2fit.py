@@ -210,7 +210,7 @@ def main(args):
         dtype=args.dtype,
         num_rotations=20,
         num_workers=2,
-        markovian=True,
+        stateless=True,
         augment=False,
         use_color = True,
         num_channels=num_channels,

@@ -127,7 +127,7 @@ class SuctionDataset(Dataset):
         else:
             self._c_norm = transforms.Normalize(mean=stats[0][0], std=stats[0][1])
         self._d_norm = transforms.Normalize(mean=stats[1][0], std=stats[1][1])
-        self._transform = transforms.ToTensor()
+        self._to_tensor = transforms.ToTensor()
 
     def __len__(self):
         return len(self._filenames)
@@ -436,10 +436,10 @@ class SuctionDataset(Dataset):
             c_height_f = np.repeat(c_height_f[..., np.newaxis], 3, axis=-1)
 
         # convert heightmaps tensors
-        c_height_i = self._c_norm(self._transform(c_height_i))
-        c_height_f = self._c_norm(self._transform(c_height_f))
-        d_height_i = self._d_norm(self._transform(d_height_i[..., np.newaxis]))
-        d_height_f = self._d_norm(self._transform(d_height_f[..., np.newaxis]))
+        c_height_i = self._c_norm(self._to_tensor(c_height_i))
+        c_height_f = self._c_norm(self._to_tensor(c_height_f))
+        d_height_i = self._d_norm(self._to_tensor(d_height_i[..., np.newaxis]))
+        d_height_f = self._d_norm(self._to_tensor(d_height_f[..., np.newaxis]))
 
         # concatenate height and depth into a 4-channel tensor
         img_tensor_i = torch.cat([c_height_i, d_height_i], dim=0)
