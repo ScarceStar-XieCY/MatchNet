@@ -7,16 +7,12 @@ import os
 import pickle
 
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-# from functools import reduce
-from pathlib import Path
 from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
-
-from matchnet.code.utils import misc, viz
+from matchnet.code.ml.transform.trans2d import *
+from matchnet.code.utils import misc
 from matchnet.code.utils import sampling
 # from tools.matrix import gen_rot_mtx_anticlockwise
 
@@ -66,28 +62,11 @@ class CorrespondenceDataset(Dataset):
         # generate rotation increments
         self._rot_step_size = 360 / num_rotations
         self._rotations = np.array([self._rot_step_size * i for i in range(num_rotations)])
-        # load per-channel mean and std
-        self._load_norm_info()
-        self._c_norm = transforms.Normalize(mean=self.c_mean, std=self.c_std)
-        self._d_norm = transforms.Normalize(mean=self.d_mean, std=self.d_std)
-        self._to_tensor = transforms.ToTensor()
 
-    def _load_norm_info(self,):
-        norm_info = pickle.load(open(os.path.join(Path(self._root).parent, "mean_std.pkl"), "rb"))
-        self.norm_info = norm_info
-        # color
-        if self._use_color:
-            color_key = "color"
-        else:
-            color_key = "gray"
-        self.c_mean = norm_info[color_key]["mean"]
-        self.c_std = norm_info[color_key]["std"]
-        if not self._use_color and self._num_channels == 4:
-            self.c_mean = self.c_mean*3
-            self.c_std = self.c_std *3
-        # depth
-        self.d_mean = norm_info["depth"]["mean"]
-        self.d_std = norm_info["depth"]["std"]
+    def _init_transforms(self):
+        self._random_rot_trans = RanRotTranslation()
+        self._change_bg = ChangeBG()
+        self._tensor_norm = TensorNorm()
 
     def __len__(self):
         return len(self._filenames)
@@ -111,6 +90,7 @@ class CorrespondenceDataset(Dataset):
         c_height_f = cv2.imread(os.path.join(name, "final_" + color_name),cv2.IMREAD_UNCHANGED)
         d_height_f = cv2.imread(os.path.join(name, "final_" + depth_name),cv2.IMREAD_UNCHANGED)
 
+
         # # convert depth to meters
         # d_height_i = (d_height_i * 1e-3).astype("float32")
         # d_height_f = (d_height_f * 1e-3).astype("float32")
@@ -125,17 +105,18 @@ class CorrespondenceDataset(Dataset):
 
         return info_dict
 
-    def _split_heightmap(self, info_dict, key):
-        """Splits a heightmap into a source and target.
-        """
-        height = info_dict[key]
-        half = height.shape[1] // 2
-        key_prefix = key[:-1]
-        info_dict[f"{key_prefix}_s"] = height[:, half:]
-        info_dict[f"{key_prefix}_t"] = height[:, :half]
+    # def _split_heightmap(self, info_dict, key):
+    #     """Splits a heightmap into a source and target.
+    #     """
+    #     height = info_dict[key]
+    #     half = height.shape[1] // 2
+    #     key_prefix = key[:-1]
+    #     info_dict[f"{key_prefix}_s"] = height[:, half:]
+    #     info_dict[f"{key_prefix}_t"] = height[:, :half]
+    #     info_dict["half"] = half
 
-        return info_dict, half
-
+    #     return info_dict
+    
     def _compute_relative_rotation(self, pose_i, pose_f):
         """Computes the relative z-axis rotation between two poses.
 
@@ -212,67 +193,23 @@ class CorrespondenceDataset(Dataset):
         else:
             return np.hstack([source_idxs, target_idxs])
 
-    # def _get_valid_idxs(self, corr, rows, cols):
-    #     positive_cond = np.logical_and(corr[:, 0] >= 0, corr[:, 1] >= 0)
-    #     within_cond = np.logical_and(corr[:, 0] < rows, corr[:, 1] < cols)
-    #     valid_idxs = reduce(np.logical_and, [positive_cond, within_cond])
-    #     return valid_idxs
-
-    # def _sample_translation(self, corrz, angle,kit_uc, kit_vc ):
-    #     # calculate valid offset range of translation, then selected one from it.
-    #     # vailid range [10:-10]
-    #     aff_1 = np.eye(3)
-    #     aff_1[:2, 2] = [-kit_uc, -kit_vc]
-    #     aff_2 = gen_rot_mtx_anticlockwise(-angle)
-    #     aff_3 = np.eye(3, 3)
-    #     aff_3[:2, 2] = [kit_uc, kit_vc]
-    #     affine = aff_3 @ aff_2 @ aff_1
-    #     affine = affine[:2, :]
-    #     corrs = []
-    #     for corr in corrz:
-    #         ones = np.ones((len(corr), 1))
-    #         corrs.append((affine @ np.hstack((corr, ones)).T).T)
-    #     max_vv = corrs[0][:, 1].max()
-    #     max_vu = corrs[0][corrs[0][:, 1].argmax()][0]
-    #     min_vv = corrs[0][:, 1].min()
-    #     min_vu = corrs[0][corrs[0][:, 1].argmin()][0]
-    #     max_uu = corrs[0][:, 0].max()
-    #     max_uv = corrs[0][corrs[0][:, 0].argmax()][1]
-    #     min_uu = corrs[0][:, 0].min()
-    #     min_uv = corrs[0][corrs[0][:, 0].argmin()][1]
-    #     for t in corrs[1:]:
-    #         if t[:, 1].max() > max_vv:
-    #             max_vv = t[:, 1].max()
-    #             max_vu = t[t[:, 1].argmax()][0]
-    #         if t[:, 1].min() < min_vv:
-    #             min_vv = t[:, 1].min()
-    #             min_vu = t[t[:, 1].argmin()][0]
-    #         if t[:, 0].max() > max_uu:
-    #             max_uu = t[:, 0].max()
-    #             max_uv = t[t[:, 0].argmax()][1]
-    #         if t[:, 0].min() < min_uu:
-    #             min_uu = t[:, 0].min()
-    #             min_uv = t[t[:, 0].argmin()][1]
-    #     #  
-    #     tv = np.random.uniform(-min_vv + 10, self._W - max_vv - 10)
-    #     tu = np.random.uniform(-min_uu + 10, self._H - max_uu - 10)
-    #     return tu, tv
-
-    def mask_left_half_move(self, info_dict, half):
-        # no need to move mask on the left
-        # three mask on the right
-        for name in ["hole", "kit_with_hole", "kit_no_hole"]:
-            info_dict[name][:,1] = info_dict[name][:,1] - half
-        # corres only needs change v coord of kit]
-        for name in ["hole", "kit_with_hole", "kit_no_hole","corres"]:
-            if isinstance(info_dict[name], np.ndarray):
-                info_dict[name][:,1] = info_dict[name][:,1] - half
-            elif isinstance(info_dict[name], list) and isinstance(info_dict[name][0], np.ndarray):
-                for i, mask in enumerate(info_dict[name]):
-                    info_dict[name][i][:,1] = mask[:,1] - half
-            else:
-                raise RuntimeError("Expect info_dict[%s] is array or list of array, but get %s",name, type(info_dict[name]))
-        return info_dict
+    # def mask_left_half_move(self, info_dict):
+    #     """move 3 types of mask to the left."""
+    #     # no need to move mask on the left
+    #     # three mask on the right
+    #     half = info_dict["half"]
+    #     for name in ["hole", "kit_with_hole", "kit_no_hole"]:
+    #         info_dict[name][:,1] = info_dict[name][:,1] - half
+    #     # corres only needs change v coord of kit]
+    #     for name in ["hole", "kit_with_hole", "kit_no_hole","corres"]:
+    #         if isinstance(info_dict[name], np.ndarray):
+    #             info_dict[name][:,1] = info_dict[name][:,1] - half
+    #         elif isinstance(info_dict[name], list) and isinstance(info_dict[name][0], np.ndarray):
+    #             for i, mask in enumerate(info_dict[name]):
+    #                 info_dict[name][i][:,1] = mask[:,1] - half
+    #         else:
+    #             raise RuntimeError("Expect info_dict[%s] is array or list of array, but get %s",name, type(info_dict[name]))
+    #     return info_dict
 
 
 
@@ -284,72 +221,22 @@ class CorrespondenceDataset(Dataset):
         
         
         # split heightmap into source and target
-        info_dict, half = self._split_heightmap(info_dict,"c_height_f")
-        info_dict, _ = self._split_heightmap(info_dict,"d_height_f")
-        self._H, self._W = c_height_t.shape[:2]
+        # self._H, self._W = c_height_t.shape[:2]
 
-        info_dict = self.mask_left_half_move(info_dict, half)
+        # info_dict = self.mask_left_half_move(info_dict)
 
         # # partition correspondences into current and previous
         # curr_corrs = all_corrs[-1]
         # prev_corrs = all_corrs[:-1]
 
-        # center of rotation is the center of the kit
-        kit_uc = int((info_dict["kit_no_hole"][:, 0].max() + info_dict["kit_no_hole"][:, 0].min()) // 2)
-        kit_vc = int((info_dict["kit_no_hole"][:, 1].max() + info_dict["kit_no_hole"][:, 1].min()) // 2)
+
 
         if self._augment:
-            # source_corrs = curr_corrs[:, 0:2].astype("float64")
-            # target_corrs = curr_corrs[:, 2:4].astype("float64")
-
-            # # determine bounds on translation for source and target
-            # sources = [info_dict["kit_no_hole"]]
-
-            # # random rotation & translation on image
-            # angle_s = np.radians(np.random.uniform(0, 360))
-            # tu_s, tv_s = self._sample_translation(sources, angle_s)
-            # aff_1 = np.eye(3)
-            # aff_1[:2, 2] = [-kit_vc, -kit_uc]
-            # aff_2 = gen_rot_mtx_anticlockwise(angle_s) # anticlockwise in uv coord, but clockwise in opencv xy coord
-            # aff_2[:2, 2] = [tv_s, tu_s]
-            # aff_3 = np.eye(3, 3)
-            # aff_3[:2, 2] = [kit_vc, kit_uc]
-            # affine_s = aff_3 @ aff_2 @ aff_1
-            # affine_s = affine_s[:2, :]
-            # c_height_s = cv2.warpAffine(c_height_s, affine_s, shape, flags=cv2.INTER_NEAREST)
-            # d_height_s = cv2.warpAffine(d_height_s, affine_s, shape, flags=cv2.INTER_NEAREST)
-
-            # # random rotation & translation on label
-            # aff_1[:2, 2] = [-kit_uc, -kit_vc]
-            # aff_2 = gen_rot_mtx_anticlockwise(-angle_s)
-            # aff_2[:2, 2] = [tv_s, tu_s]
-            # aff_3[:2, 2] = [kit_uc, kit_vc]
-            # affine_s = aff_3 @ aff_2 @ aff_1
-            # affine_s = affine_s[:2, :]
-            # source_corrs = (affine_s @ np.hstack((source_corrs, np.ones((len(source_corrs), 1)))).T).T
-
-            # # remove invalid indices
-            # valid_target_idxs = self._get_valid_idxs(target_corrs, self._H, self._W)
-            # target_corrs = target_corrs[valid_target_idxs].astype("int64")
-            # source_corrs = source_corrs[valid_target_idxs].astype("int64")
-            # curr_corrs = np.hstack((source_corrs, target_corrs))
-
-            # # apply affine transformation to masks in source
-            # masks = [hole_mask, info_dict["kit_no_hole"], kit_minus_hole_mask]
-            # for i in range(len(masks)):
-            #     ones = np.ones((len(masks[i]), 1))
-            #     masks[i] = (affine_s @ np.hstack((masks[i], ones)).T).T
-            # hole_mask, info_dict["kit_no_hole"], kit_minus_hole_mask = masks
-
-            # # update prev_corrs if not stateless
-            # if not self._stateless:
-            #     for i, corrs in enumerate(prev_corrs):
-            #         corrs = corrs[:, 0:2].astype("float64")
-            #         corrs = (affine_s @ np.hstack((corrs, np.ones((len(corrs), 1)))).T).T
-            #         prev_corrs[i][:, 0:2] = corrs
-
-            # # update gd_truth_rot
-            # gd_truth_rot = gd_truth_rot - np.degrees(angle_s)
+            info_dict = self._random_rot_trans(info_dict)
+            
+            # TODO: change bg
+            # TODO:color jit
+            # TODO:kit_uc vc 
 
         # reupdate kit mask center
         kit_uc = int((info_dict["kit_no_hole"][:, 0].max() + info_dict["kit_no_hole"][:, 0].min()) // 2)
@@ -376,6 +263,7 @@ class CorrespondenceDataset(Dataset):
         num_matches = 0
         for m in self._is_match:
             num_matches += len(m)
+
         num_non_matches = int(self._sample_ratio * num_matches / self._num_rotations)
 
         # convert masks to linear indices for sampling
@@ -444,6 +332,7 @@ class CorrespondenceDataset(Dataset):
 
             # source: in the hole
             # target: on the object
+            # onlt this stratygy concern stateless or not    
             if self._stateless:
                 if rot_idx == curr_rot_idx:
                     nm_idxs = sampling.non_matches_from_matches(
@@ -530,10 +419,10 @@ class CorrespondenceDataset(Dataset):
         label_tensor = torch.LongTensor(label)
 
         # heightmaps -> tensor
-        c_height_s = self._c_norm(self._to_tensor(c_height_s))
-        c_height_t = self._c_norm(self._to_tensor(c_height_t))
-        d_height_s = self._d_norm(self._to_tensor(d_height_s))
-        d_height_t = self._d_norm(self._to_tensor(d_height_t))
+        c_height_s = self._tensor_norm(c_height_s)
+        c_height_t = self._tensor_norm(c_height_t)
+        d_height_s = self._tensor_norm(d_height_s)
+        d_height_t = self._tensor_norm(d_height_t)
 
         # concatenate height and depth into a 4-channel tensor
         source_img_tensor = torch.cat([c_height_s, d_height_s], dim=0)
