@@ -139,7 +139,7 @@ if __name__ == "__main__":
     # valid_loss = []
     # train_epochs_loss = []
     # valid_epochs_loss = []
-    logger.warning("train from %s epoch, ckpt = %s",start_epoch, opt.checkpoint)
+    logger.warning("train from %s epoch, ckpt = %s",start_epoch, opt.checkpoint if opt.resume else "scratch")
     one_epoch_step = len(train_loader)
     for epoch in tqdm(range(start_epoch +1, epochs)):
         logger.warning("training...")

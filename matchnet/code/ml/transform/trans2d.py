@@ -37,13 +37,14 @@ class SplitTarSour():
         # no need to move mask on the left
         # three mask on the right
         half = info_dict["half"]
-        # corres only needs change v coord of kit]
         for name in ["hole", "kit_with_hole", "kit_no_hole","corres"]:
             if isinstance(info_dict[name], np.ndarray):
-                info_dict[name][:,1] = info_dict[name][:,1] - half
+                info_dict[name][:,1] -= half
             elif isinstance(info_dict[name], list) and isinstance(info_dict[name][0], np.ndarray):
                 for i, mask in enumerate(info_dict[name]):
-                    info_dict[name][i][:,1] = mask[:,1] - half
+                    if mask[:,1].max() <= half:
+                        continue
+                    info_dict[name][i][:,1] -= half
             else:
                 raise RuntimeError("Expect info_dict[%s] is array or list of array, but get %s",name, type(info_dict[name]))
         return info_dict
@@ -55,7 +56,7 @@ class SplitTarSour():
         key:key of image to be splited.
         """
         height = info_dict[key]
-        key_prefix = key[:-1]
+        key_prefix = key[:-2]
         if isinstance(height,np.ndarray): # HWC
             half = height.shape[1] // 2
             info_dict[f"{key_prefix}_s"] = height[:, half:]
@@ -96,10 +97,12 @@ class MergeTarSour():
         # corres only needs change v coord of kit]
         for name in ["hole", "kit_with_hole", "kit_no_hole","corres"]:
             if isinstance(info_dict[name], np.ndarray):
-                info_dict[name][:,1] = info_dict[name][:,1] + half
+                info_dict[name][:,1] += half
             elif isinstance(info_dict[name], list) and isinstance(info_dict[name][0], np.ndarray):
                 for i, mask in enumerate(info_dict[name]):
-                    info_dict[name][i][:,1] = mask[:,1] + half
+                    if mask[:,1].min() >= half:
+                        continue
+                    info_dict[name][i][:,1] += half
             else:
                 raise RuntimeError("Expect info_dict[%s] is array or list of array, but get %s",name, type(info_dict[name]))
         return info_dict
@@ -109,13 +112,13 @@ class MergeTarSour():
         """Splits a heightmap into a source and target.
         key: key of merged image.
         """
-        key_prefix = key[:-1]
+        key_prefix = key[:-2]
 
         right_half = info_dict[f"{key_prefix}_s"]
         left_half = info_dict[f"{key_prefix}_t"]
         info_dict[f"{key_prefix}_f"] = np.hstack((left_half, right_half))
         # check shape
-        if info_dict[f"{key_prefix}_f"].shape[0] != 2 * info_dict["half"]:
+        if info_dict[f"{key_prefix}_f"].shape[1] != 2 * info_dict["half"]:
             raise RuntimeError("shape dismatch.")
         
         return info_dict
@@ -132,11 +135,13 @@ class RanRotTranslation():
     """Randomly rotation and ranslation kit on right half image and update
     other mask in info_dict.
     """
-    def __init__(self):
+    def __init__(self,shape):
         """init"""
         # center of rotation is the center of the kit
         self.split_process = SplitTarSour()
         self.merge_process = MergeTarSour()
+        self._H = shape[0]
+        self._W = shape[1]
         pass
 
     def _get_valid_idxs(self, corr, rows, cols):
@@ -148,53 +153,57 @@ class RanRotTranslation():
     def _corres_rot_translation(self, info_dict, affine_matrix):
         # random rotation & translation on label
 
-        for corrs in info_dict["corres"]:
+        for i,corrs in enumerate(info_dict["corres"]):
             source_corrs = corrs[:,0:2].astype("float64")
             target_corrs = corrs[:,2:4].astype("float64")
             source_corrs = (affine_matrix @ np.hstack((source_corrs, np.ones((len(source_corrs), 1)))).T).T
             # remove invalid indices
-            valid_target_idxs = self._get_valid_idxs(target_corrs, self._H, self._W)
+            valid_target_idxs = self._get_valid_idxs(source_corrs, self._H, self._W * 2)
             target_corrs = target_corrs[valid_target_idxs].astype("int64")
             source_corrs = source_corrs[valid_target_idxs].astype("int64")
             corrs = np.hstack((source_corrs, target_corrs))
+            info_dict[i] = corrs
         return info_dict
 
     def _mask_rot_translation(self, info_dict, affine_matrix):
         for name in ["hole", "kit_with_hole", "kit_no_hole"]:
-            mask = info_dict[name]
+            mask = info_dict[name][-1]
             ones = np.ones((len(mask), 1))
-            masks = (affine_matrix @ np.hstack((masks, ones)).T).T
-            info_dict[name] = mask
+            mask = (affine_matrix @ np.hstack((mask, ones)).T).T
+            valid_mask_idxs = self._get_valid_idxs(mask, self._H, self._W * 2)
+            mask = mask[valid_mask_idxs].astype("int64")
+            info_dict[name][-1] = mask
         return info_dict
 
 
-    def __call__(self,info_dict, shape):
+    def __call__(self,info_dict):
         """Update mask ,corres and angle for random rot and translation."""
         # split image and updata mask
         info_dict = self.split_process(info_dict)
         # determine bounds on translation for source and target
-        sources = [info_dict["kit_no_hole"]]
+        sources = info_dict["kit_no_hole"][-1:]
         
-        kit_uc = int((info_dict["kit_no_hole"][:, 0].max() + info_dict["kit_no_hole"][:, 0].min()) // 2)
-        kit_vc = int((info_dict["kit_no_hole"][:, 1].max() + info_dict["kit_no_hole"][:, 1].min()) // 2)
+        kit_uc = int((info_dict["kit_no_hole"][-1][:, 0].max() + info_dict["kit_no_hole"][-1][:, 0].min()) // 2)
+        kit_vc = int((info_dict["kit_no_hole"][-1][:, 1].max() + info_dict["kit_no_hole"][-1][:, 1].min()) // 2)
 
         # random rotation & translation on image
-        angle_s = np.radians(np.random.uniform(0, 360))
-        tu_s, tv_s = self._sample_translation(sources, angle_s)
+        angle_s = np.random.uniform(0, 360)
+        tu_s, tv_s = self._sample_translation(sources, angle_s, kit_uc,kit_vc)
         aff_1 = np.eye(3)
         aff_1[:2, 2] = [-kit_vc, -kit_uc]
-        aff_2 = gen_rot_mtx_anticlockwise(angle_s) # anticlockwise in uv coord, but clockwise in opencv xy coord
+        aff_2 = gen_rot_mtx_anticlockwise(angle_s,isdegree=True) # anticlockwise in uv coord, but clockwise in opencv xy coord
         aff_2[:2, 2] = [tv_s, tu_s]
         aff_3 = np.eye(3, 3)
         aff_3[:2, 2] = [kit_vc, kit_uc]
         affine_s = aff_3 @ aff_2 @ aff_1
         affine_s = affine_s[:2, :]
-        info_dict["c_height_s"] = cv2.warpAffine(info_dict["c_height_s"], affine_s, shape, flags=cv2.INTER_NEAREST)
-        info_dict["d_height_s"] = cv2.warpAffine(info_dict["d_height_s"], affine_s, shape, flags=cv2.INTER_NEAREST)
-
+        shape = (self._W, self._H)
+        info_dict["c_height_s"] = cv2.warpAffine(info_dict["c_height_s"], affine_s, shape, flags=cv2.INTER_NEAREST,borderMode= cv2.BORDER_REPLICATE)
+        info_dict["d_height_s"] = cv2.warpAffine(info_dict["d_height_s"], affine_s, shape, flags=cv2.INTER_NEAREST,borderMode= cv2.BORDER_REPLICATE)
+        
         aff_1[:2, 2] = [-kit_uc, -kit_vc]
-        aff_2 = gen_rot_mtx_anticlockwise(-angle_s)
-        aff_2[:2, 2] = [tv_s, tu_s]
+        aff_2 = gen_rot_mtx_anticlockwise(-angle_s,isdegree=True)
+        aff_2[:2, 2] = [tu_s, tv_s]
         aff_3[:2, 2] = [kit_uc, kit_vc]
         affine_s = aff_3 @ aff_2 @ aff_1
         affine_s = affine_s[:2, :]
@@ -206,7 +215,7 @@ class RanRotTranslation():
 
         # update gd_truth_rot
         for i, rot in enumerate(info_dict["delta_angle"]):
-            info_dict["delta_angle"][i] = rot - np.degrees(angle_s)
+            info_dict["delta_angle"][i] = rot - angle_s
         
         # merge image and update mask
         info_dict = self.merge_process(info_dict)
@@ -219,7 +228,7 @@ class RanRotTranslation():
         # vailid range [10:-10]
         aff_1 = np.eye(3)
         aff_1[:2, 2] = [-kit_uc, -kit_vc]
-        aff_2 = gen_rot_mtx_anticlockwise(-angle)
+        aff_2 = gen_rot_mtx_anticlockwise(-angle,isdegree=True)
         aff_3 = np.eye(3, 3)
         aff_3[:2, 2] = [kit_uc, kit_vc]
         affine = aff_3 @ aff_2 @ aff_1
@@ -256,21 +265,24 @@ class RanRotTranslation():
         
 
 class ChangeBG():
-    def __init__(self, change_ratio):
+    def __init__(self, change_ratio, key_list, shape):
         """Change background in rgb image , remain objects and kit and
           anything of depth unchanged."""
-        bg_path = "" # TODO
-        self._bg_imgs = pickle.load(open(bg_path,"rb"))
+        # bg_path = "" # TODO
+        # self._bg_imgs = pickle.load(open(bg_path,"rb"))
+        self._H = shape[0]
+        self._W = shape[1]
+        self._bg_imgs = [np.full((self._H,self._W,3), 128, np.uint8), np.full((self._H,self._W,3), 0, np.uint8), np.full((self._H,self._W,3), 256, np.uint8)]
         self._num_bg_imgs = len(self._bg_imgs)
         self._change_ratio = change_ratio
+        self._key_list = _key_list_hook(key_list)
 
-    @staticmethod
-    def get_fg_mask(info_dict):
-        fg_mask = np.hstack(info_dict["obj"])
-        fg_mask = np.hstack(fg_mask, info_dict["kit_no_hole"][-1])
+    def get_fg_mask(self,info_dict):
+        fg_mask = np.vstack(info_dict["obj"])
+        fg_mask = np.vstack((fg_mask, info_dict["kit_no_hole"][-1]))
         if fg_mask.ndim != 2 or fg_mask.shape[1] != 2:
             raise RuntimeError(f"fg_mask shape mismatch, expect (N,2), but get {fg_mask.shape}")
-        fg_image = coord2mask(fg_mask)
+        fg_image = coord2mask(np.floor(fg_mask).astype(np.int64), self._H, self._W, False)
         return fg_image
 
     @staticmethod
@@ -298,10 +310,11 @@ class ChangeBG():
         if self._change_ratio < np.random.rand():
             return info_dict
         fg_mask = self.get_fg_mask(info_dict)
-        # randomly select bg img
-        idx = np.random.choice(self._num_bg_imgs,1)
+        # randomly select bg imgs
+        idx = np.random.choice(self._num_bg_imgs,1)[0]
         bg_img = self._bg_imgs[idx]
-        info_dict["c_height_f"] = self.apply_fg_to_bg(fg_mask,info_dict["c_height_f"],bg_img, False,"")
+        for key in self._key_list:
+            info_dict[key] = self.apply_fg_to_bg(fg_mask,info_dict[key],bg_img, False,"")
         return info_dict
 
 
@@ -345,6 +358,7 @@ class ImageToTensor():
                 image_tensor = image_tensor.permute(2,0,1) # HWC -> CHW 
             else:
                 raise RuntimeError(f"Expect HW or WH3 tensor but get {image_tensor.shape}")
+            info_dict[key] = image_tensor
         return info_dict
             
 
@@ -353,24 +367,24 @@ class TensorNorm():
     """Convert image to tensor if needed and normalize."""
     def __init__(self, kit_dir_root, use_color:bool, num_channels:int, key_list):
         """init"""
-        norm_info = pickle.load(open(os.path.join(Path(kit_dir_root).parent, "mean_std.pkl"), "rb"))
+        # norm_info = pickle.load(open(os.path.join(Path(kit_dir_root).parent, "mean_std.pkl"), "rb"))
         # color
-        if use_color:
-            color_key = "color"
-        else:
-            color_key = "gray"
-        _c_mean = norm_info[color_key]["mean"]
-        _c_std = norm_info[color_key]["std"]
-        if not use_color and num_channels == 4:
-            _c_mean = _c_mean*3
-            _c_std = _c_std *3
-        # depth
-        _d_mean = norm_info["depth"]["mean"]
-        _d_std = norm_info["depth"]["std"]
+        # if use_color:
+        #     color_key = "color"
+        # else:
+        #     color_key = "gray"
+        # _c_mean = norm_info[color_key]["mean"]
+        # _c_std = norm_info[color_key]["std"]
+        # if not use_color and num_channels == 4:
+        #     _c_mean = _c_mean* 3
+        #     _c_std = _c_std * 3
+        # # depth
+        # _d_mean = norm_info["depth"]["mean"]
+        # _d_std = norm_info["depth"]["std"]
 
         # init func
-        self._c_norm = transforms.Normalize(mean=_c_mean/255.0, std=_c_std/255.0) # need CHW
-        self._d_norm = transforms.Normalize(mean=_d_mean/255.0, std=_d_std/255.0)
+        # self._c_norm = transforms.Normalize(mean=_c_mean, std=_c_std) # need CHW
+        # self._d_norm = transforms.Normalize(mean=_d_mean, std=_d_std)
         self._key_list = _key_list_hook(key_list)
         self._image2tensor = ImageToTensor(self._key_list)
 
@@ -379,10 +393,11 @@ class TensorNorm():
         """ndarray -> tensor -> norm"""
         info_dict = self._image2tensor(info_dict)
         for key in self._key_list:
-            info_dict[key] = info_dict[key].to(torch.float32) / 255.0
-            if "c" in  key:
-                info_dict[key] = self._c_norm(info_dict[key])
-            elif "d" in key:
-                info_dict[key] = self._d_norm(info_dict[key])
+            info_dict[key] = info_dict[key].to(torch.float32)
+            # if "c" in  key:
+            #     info_dict[key] = self._c_norm(info_dict[key])
+            # elif "d" in key:
+            #     info_dict[key] = self._d_norm(info_dict[key])
+            info_dict[key] /= 255.0
         return info_dict
  

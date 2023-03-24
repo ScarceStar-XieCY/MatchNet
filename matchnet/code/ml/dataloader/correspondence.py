@@ -55,6 +55,8 @@ class CorrespondenceDataset(Dataset):
         self._background_subtract = background_subtract
         self._num_channels = num_channels
         self._use_color = use_color
+        self._H = 240
+        self._W = 424 // 2
 
         # figure out how many data samples we have
         self._get_filenames()
@@ -62,11 +64,12 @@ class CorrespondenceDataset(Dataset):
         # generate rotation increments
         self._rot_step_size = 360 / num_rotations
         self._rotations = np.array([self._rot_step_size * i for i in range(num_rotations)])
+        self._init_transforms()
 
     def _init_transforms(self):
-        self._random_rot_trans = RanRotTranslation()
-        self._change_bg = ChangeBG(0.5, "c_height_f")
-        self._change_color = ColorJit(0.5, "c_height_f")
+        self._random_rot_trans = RanRotTranslation((self._H,self._W))
+        self._change_bg = ChangeBG(1, "c_height_f",(self._H,self._W * 2))
+        self._change_color = ColorJit(1, "c_height_f")
         self._tensor_norm = TensorNorm(self._root,self._use_color,self._num_channels,["c_height_f","d_height_f"])
         self._split_image = SplitTarSour()
 
@@ -102,6 +105,10 @@ class CorrespondenceDataset(Dataset):
         if self._stateless:
             info_dict["corres"] = info_dict["corres"][-1:]
             info_dict["delta_angle"] = info_dict["delta_angle"][-1:]
+        # info_dict["obj"] = info_dict["obj"][-1]
+        # info_dict["hole"] = info_dict["hole"][-1]
+        # info_dict["kit_with_hole"] = info_dict["kit_with_hole"][-1]
+        # info_dict["kit_no_hole"] = info_dict["kit_no_hole"][-1]
         return info_dict
 
 
@@ -131,7 +138,7 @@ class CorrespondenceDataset(Dataset):
 
         return np.argmin(np.abs(self._rotations - angle))
 
-    def _process_correspondences(self, corrs, rot_idx, append=True):
+    def _process_correspondences(self, corrs, rot_idx, kit_uc, kit_vc,append=True):
         """Processes correspondences for a given rotation. 
             Rotate source label as quanti rot angle, filter valid point.
         """
@@ -190,12 +197,16 @@ class CorrespondenceDataset(Dataset):
             info_dict = self._random_rot_trans(info_dict)
             info_dict = self._change_bg(info_dict)
             info_dict = self._change_color(info_dict)
+            info_dict = self._tensor_norm(info_dict)
+            info_dict = self._split_image(info_dict)
+        else:
+            info_dict = self._change_color(info_dict)
+            info_dict = self._tensor_norm(info_dict)
             info_dict = self._split_image(info_dict)
 
-
         # reupdate kit mask center
-        kit_uc = int((info_dict["kit_no_hole"][:, 0].max() + info_dict["kit_no_hole"][:, 0].min()) // 2)
-        kit_vc = int((info_dict["kit_no_hole"][:, 1].max() + info_dict["kit_no_hole"][:, 1].min()) // 2)
+        kit_uc = int((info_dict["kit_no_hole"][-1][:, 0].max() + info_dict["kit_no_hole"][-1][:, 0].min()) // 2)
+        kit_vc = int((info_dict["kit_no_hole"][-1][:, 1].max() + info_dict["kit_no_hole"][-1][:, 1].min()) // 2)
 
         
         # quantize rotation
@@ -210,7 +221,7 @@ class CorrespondenceDataset(Dataset):
 
         # sample matches from all timesteps
         for rot_idx, corrs in zip(rot_quant_indices, info_dict["corres"]):
-            self._process_correspondences(corrs, rot_idx)
+            self._process_correspondences(corrs, rot_idx,kit_uc, kit_vc)
 
         # determine the number of non-matches to sample per rotation
         num_matches = 0
@@ -221,14 +232,14 @@ class CorrespondenceDataset(Dataset):
 
         # convert masks to linear indices for sampling
         all_idxs_1d = np.arange(0, self._H * self._W)
-        object_target_1d = sampling.make1d(info_dict["obj"], self._W)
+        object_target_1d = sampling.make1d(info_dict["obj"][-1], self._W)
         background_target_1d = np.array(list((set(all_idxs_1d) - set(object_target_1d))))
-        hole_source_1d = sampling.make1d(info_dict["hole"], self._W)
-        kit_minus_hole_source_1d = sampling.make1d(info_dict["kie_with_hole"], self._W)
-        kit_plus_hole_source_1d = sampling.make1d(info_dict["kit_no_hole"], self._W)
+        hole_source_1d = sampling.make1d(info_dict["hole"][-1], self._W)
+        kit_minus_hole_source_1d = sampling.make1d(info_dict["kit_with_hole"][-1], self._W)
+        kit_plus_hole_source_1d = sampling.make1d(info_dict["kit_no_hole"][-1], self._W)
         background_source_1d = np.array(list(set(all_idxs_1d) - set(kit_plus_hole_source_1d)))
         # remove the part of box of kit
-        background_source_1d = sampling.remove_outliers(background_source_1d, info_dict["kit_no_hole"], self._W)
+        background_source_1d = sampling.remove_outliers(background_source_1d, info_dict["kit_no_hole"][-1], self._W)
 
         # sample non-matches
         temp_idx = 0
@@ -278,8 +289,8 @@ class CorrespondenceDataset(Dataset):
             # 180 degree rotated version of the
             # correct rotation.
             if rot_idx != rot_quant_indices[-1]:
-                nm_idxs = self._process_correspondences(info_dict["corres"][-1], rot_idx, False)
-                subset_mask = np.random.choice(np.arange(len(nm_idxs)), replace=False, size=(1 * num_non_matches // div_factor))
+                nm_idxs = self._process_correspondences(info_dict["corres"][-1], rot_idx,kit_uc, kit_vc,False)
+                subset_mask = np.random.choice(np.arange(len(nm_idxs)), size=(1 * num_non_matches // div_factor))
                 nm_idxs = nm_idxs[subset_mask]
                 non_matches.append(nm_idxs)
 
