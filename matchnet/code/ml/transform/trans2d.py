@@ -10,6 +10,16 @@ import os
 from pathlib import Path
 from tools.image_mask.mask_process import apply_mask_to_img,coord2mask
 
+
+
+def _key_list_hook(key_list):
+    "Convert string to list if needed"
+    if isinstance(key_list, list):
+        return key_list
+    if isinstance(key_list, str):
+        return [key_list]
+
+
 class SplitTarSour():
     """Split image to traget and source. And Update 
     all types of mask.
@@ -45,13 +55,19 @@ class SplitTarSour():
         key:key of image to be splited.
         """
         height = info_dict[key]
-        half = height.shape[1] // 2
         key_prefix = key[:-1]
-        info_dict[f"{key_prefix}_s"] = height[:, half:]
-        info_dict[f"{key_prefix}_t"] = height[:, :half]
+        if isinstance(height,np.ndarray): # HWC
+            half = height.shape[1] // 2
+            info_dict[f"{key_prefix}_s"] = height[:, half:]
+            info_dict[f"{key_prefix}_t"] = height[:, :half]
+        elif isinstance(height,torch.Tensor): #CHW
+            half = height.shape[2] // 2
+            info_dict[f"{key_prefix}_s"] = height[:, :,half:]
+            info_dict[f"{key_prefix}_t"] = height[:, :,:half]
         info_dict["half"] = half
-
         return info_dict
+    
+
     def __call__(self,info_dict):
         # have to split first then move mask
         info_dict = self.split_heightmap(info_dict,"c_height_f")
@@ -194,6 +210,8 @@ class RanRotTranslation():
         
         # merge image and update mask
         info_dict = self.merge_process(info_dict)
+
+        # TODO : update init_point
         return info_dict
 
     def _sample_translation(self, corrz, angle,kit_uc, kit_vc):
@@ -275,23 +293,65 @@ class ChangeBG():
         return img
 
 
-    def __call__(info_dict):
+    def __call__(self,info_dict):
         """"""
+        if self._change_ratio < np.random.rand():
+            return info_dict
         fg_mask = self.get_fg_mask(info_dict)
-        # randomly select bg img TODO
+        # randomly select bg img
         idx = np.random.choice(self._num_bg_imgs,1)
         bg_img = self._bg_imgs[idx]
-        info_dict[""]
+        info_dict["c_height_f"] = self.apply_fg_to_bg(fg_mask,info_dict["c_height_f"],bg_img, False,"")
+        return info_dict
+
 
 class ColorJit():
-    def __init__():
+    """Change color for rgb image. Will convert HWC np.ndarray to CHW tensor."""
+    def __init__(self,change_ratio,key_list):
         """"""
+        self.color_jitter = transforms.ColorJitter(0.3,0.3,0.3,0.3)
+        self._key_list = _key_list_hook(key_list)
+        self._image2tensor = ImageToTensor(self._key_list)
+        self._change_ratio = change_ratio
         
-    def __call__():
+    def __call__(self,info_dict):
         """"""
+        if self._change_ratio < np.random.rand():
+            return info_dict
+        info_dict = self._image2tensor(info_dict)
+        for key in self._key_list:
+            info_dict[key] = self.color_jitter(info_dict[key])
+        return info_dict
+        
+            
+class ImageToTensor():
+    """Convert HWC np.ndarray to CHW tensor."""
+    def __init__(self, key_list):
+        
+        self._key_list = _key_list_hook(key_list)
+        
+    def __call__(self,info_dict):
+        for key in self._key_list: 
+            if isinstance(info_dict[key],torch.Tensor) and (info_dict[key].shape[0] == 1 or  info_dict[key].shape[0] == 3):
+                # staisfy CHW tensor
+                continue
+            if isinstance(info_dict[key], np.ndarray):
+                image_tensor = torch.from_numpy(info_dict[key])
+            elif not isinstance(info_dict[key],torch.Tensor):
+                raise NotImplementedError
+            if image_tensor.ndim == 2: # HW -> CHW, which C = 1
+                image_tensor = image_tensor.unsqueeze(0)
+            elif image_tensor.ndim == 3 and image_tensor.shape[-1] == 3:
+                image_tensor = image_tensor.permute(2,0,1) # HWC -> CHW 
+            else:
+                raise RuntimeError(f"Expect HW or WH3 tensor but get {image_tensor.shape}")
+        return info_dict
+            
+
 
 class TensorNorm():
-    def __init__(self, kit_dir_root, use_color:bool, num_channels:int):
+    """Convert image to tensor if needed and normalize."""
+    def __init__(self, kit_dir_root, use_color:bool, num_channels:int, key_list):
         """init"""
         norm_info = pickle.load(open(os.path.join(Path(kit_dir_root).parent, "mean_std.pkl"), "rb"))
         # color
@@ -309,12 +369,20 @@ class TensorNorm():
         _d_std = norm_info["depth"]["std"]
 
         # init func
-        self._c_norm = transforms.Normalize(mean=_c_mean, std=_c_std)
-        self._d_norm = transforms.Normalize(mean=_d_mean, std=_d_std)
-        self._to_tensor = transforms.ToTensor()
+        self._c_norm = transforms.Normalize(mean=_c_mean/255.0, std=_c_std/255.0) # need CHW
+        self._d_norm = transforms.Normalize(mean=_d_mean/255.0, std=_d_std/255.0)
+        self._key_list = _key_list_hook(key_list)
+        self._image2tensor = ImageToTensor(self._key_list)
 
         
-    def __call__(self,image:np.ndarray):
-        """ndarrya -> tensor -> norm"""
-        tensor_image = self._c_norm(self._to_tensor(image))
-        return tensor_image
+    def __call__(self,info_dict):
+        """ndarray -> tensor -> norm"""
+        info_dict = self._image2tensor(info_dict)
+        for key in self._key_list:
+            info_dict[key] = info_dict[key].to(torch.float32) / 255.0
+            if "c" in  key:
+                info_dict[key] = self._c_norm(info_dict[key])
+            elif "d" in key:
+                info_dict[key] = self._d_norm(info_dict[key])
+        return info_dict
+ 

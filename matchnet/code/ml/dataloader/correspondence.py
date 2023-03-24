@@ -65,8 +65,10 @@ class CorrespondenceDataset(Dataset):
 
     def _init_transforms(self):
         self._random_rot_trans = RanRotTranslation()
-        self._change_bg = ChangeBG()
-        self._tensor_norm = TensorNorm()
+        self._change_bg = ChangeBG(0.5, "c_height_f")
+        self._change_color = ColorJit(0.5, "c_height_f")
+        self._tensor_norm = TensorNorm(self._root,self._use_color,self._num_channels,["c_height_f","d_height_f"])
+        self._split_image = SplitTarSour()
 
     def __len__(self):
         return len(self._filenames)
@@ -77,7 +79,7 @@ class CorrespondenceDataset(Dataset):
         self._filenames = glob.glob(os.path.join(self._root, "*/"))
         # self._filenames.sort(key=lambda x: int(x.split("/")[-2]))
 
-    def _load_state(self, name):
+    def _load_state(self, file_name):
         # load visual
         if self._use_color:
             color_name = "color.png"
@@ -85,38 +87,24 @@ class CorrespondenceDataset(Dataset):
             color_name = "gray.png"
         depth_name = "depth.png"
             
-        # c_height_i = cv2.imread(os.path.join(name, "init_" + color_name),cv2.IMREAD_UNCHANGED)
-        # d_height_i = cv2.imread(os.path.join(name, "init_" + depth_name),cv2.IMREAD_UNCHANGED)
-        c_height_f = cv2.imread(os.path.join(name, "final_" + color_name),cv2.IMREAD_UNCHANGED)
-        d_height_f = cv2.imread(os.path.join(name, "final_" + depth_name),cv2.IMREAD_UNCHANGED)
+        # c_height_i = cv2.imread(os.path.join(file_name, "init_" + color_name),cv2.IMREAD_UNCHANGED)
+        # d_height_i = cv2.imread(os.path.join(file_name, "init_" + depth_name),cv2.IMREAD_UNCHANGED)
+        c_height_f = cv2.imread(os.path.join(file_name, "final_" + color_name),cv2.IMREAD_UNCHANGED)
+        d_height_f = cv2.imread(os.path.join(file_name, "final_" + depth_name),cv2.IMREAD_UNCHANGED)
 
 
-        # # convert depth to meters
-        # d_height_i = (d_height_i * 1e-3).astype("float32")
-        # d_height_f = (d_height_f * 1e-3).astype("float32")
 
         # load info_dict
-        info_dict = pickle.load(open(os.path.join(name, "info_dict.pkl"),"rb"))
+        info_dict = pickle.load(open(os.path.join(file_name, "info_dict.pkl"),"rb"))
         info_dict["c_height_f"] = c_height_f
         info_dict["d_height_f"] = d_height_f
         
         if self._stateless:
             info_dict["corres"] = info_dict["corres"][-1:]
-
+            info_dict["delta_angle"] = info_dict["delta_angle"][-1:]
         return info_dict
 
-    # def _split_heightmap(self, info_dict, key):
-    #     """Splits a heightmap into a source and target.
-    #     """
-    #     height = info_dict[key]
-    #     half = height.shape[1] // 2
-    #     key_prefix = key[:-1]
-    #     info_dict[f"{key_prefix}_s"] = height[:, half:]
-    #     info_dict[f"{key_prefix}_t"] = height[:, :half]
-    #     info_dict["half"] = half
 
-    #     return info_dict
-    
     def _compute_relative_rotation(self, pose_i, pose_f):
         """Computes the relative z-axis rotation between two poses.
 
@@ -193,50 +181,17 @@ class CorrespondenceDataset(Dataset):
         else:
             return np.hstack([source_idxs, target_idxs])
 
-    # def mask_left_half_move(self, info_dict):
-    #     """move 3 types of mask to the left."""
-    #     # no need to move mask on the left
-    #     # three mask on the right
-    #     half = info_dict["half"]
-    #     for name in ["hole", "kit_with_hole", "kit_no_hole"]:
-    #         info_dict[name][:,1] = info_dict[name][:,1] - half
-    #     # corres only needs change v coord of kit]
-    #     for name in ["hole", "kit_with_hole", "kit_no_hole","corres"]:
-    #         if isinstance(info_dict[name], np.ndarray):
-    #             info_dict[name][:,1] = info_dict[name][:,1] - half
-    #         elif isinstance(info_dict[name], list) and isinstance(info_dict[name][0], np.ndarray):
-    #             for i, mask in enumerate(info_dict[name]):
-    #                 info_dict[name][i][:,1] = mask[:,1] - half
-    #         else:
-    #             raise RuntimeError("Expect info_dict[%s] is array or list of array, but get %s",name, type(info_dict[name]))
-    #     return info_dict
-
-
-
     def __getitem__(self, idx):
-        name = self._filenames[idx]
 
         # load states
         info_dict = self._load_state(self._filenames[idx])
         
-        
-        # split heightmap into source and target
-        # self._H, self._W = c_height_t.shape[:2]
-
-        # info_dict = self.mask_left_half_move(info_dict)
-
-        # # partition correspondences into current and previous
-        # curr_corrs = all_corrs[-1]
-        # prev_corrs = all_corrs[:-1]
-
-
-
         if self._augment:
             info_dict = self._random_rot_trans(info_dict)
-            
-            # TODO: change bg
-            # TODO:color jit
-            # TODO:kit_uc vc 
+            info_dict = self._change_bg(info_dict)
+            info_dict = self._change_color(info_dict)
+            info_dict = self._split_image(info_dict)
+
 
         # reupdate kit mask center
         kit_uc = int((info_dict["kit_no_hole"][:, 0].max() + info_dict["kit_no_hole"][:, 0].min()) // 2)
@@ -244,20 +199,18 @@ class CorrespondenceDataset(Dataset):
 
         
         # quantize rotation
-        curr_rot_idx = self._quantize_rotation(gd_truth_rot)
+        rot_quant_indices = []
+        for delta_angle in info_dict["delta_angle"]:
+            rot_quant_indices.append(self._quantize_rotation(delta_angle))
 
         self._features_source = []
         self._features_target = []
         self._rot_idxs = []
         self._is_match = []
 
-        # sample matches from all previous timesteps if not stateless
-        if not self._stateless:
-            for rot_idx, corrs in zip(self._pre_rot_quant_indices, prev_corrs):
-                self._process_correspondences(corrs, rot_idx)
-
-        # sample matches from the current timestep
-        self._process_correspondences(curr_corrs, curr_rot_idx, depth=d_height_t)
+        # sample matches from all timesteps
+        for rot_idx, corrs in zip(rot_quant_indices, info_dict["corres"]):
+            self._process_correspondences(corrs, rot_idx)
 
         # determine the number of non-matches to sample per rotation
         num_matches = 0
@@ -268,10 +221,10 @@ class CorrespondenceDataset(Dataset):
 
         # convert masks to linear indices for sampling
         all_idxs_1d = np.arange(0, self._H * self._W)
-        object_target_1d = sampling.make1d(object_mask, self._W)
+        object_target_1d = sampling.make1d(info_dict["obj"], self._W)
         background_target_1d = np.array(list((set(all_idxs_1d) - set(object_target_1d))))
-        hole_source_1d = sampling.make1d(hole_mask, self._W)
-        kit_minus_hole_source_1d = sampling.make1d(kit_minus_hole_mask, self._W)
+        hole_source_1d = sampling.make1d(info_dict["hole"], self._W)
+        kit_minus_hole_source_1d = sampling.make1d(info_dict["kie_with_hole"], self._W)
         kit_plus_hole_source_1d = sampling.make1d(info_dict["kit_no_hole"], self._W)
         background_source_1d = np.array(list(set(all_idxs_1d) - set(kit_plus_hole_source_1d)))
         # remove the part of box of kit
@@ -324,8 +277,8 @@ class CorrespondenceDataset(Dataset):
             # This is especially useful for the
             # 180 degree rotated version of the
             # correct rotation.
-            if rot_idx != curr_rot_idx:
-                nm_idxs = self._process_correspondences(curr_corrs, rot_idx, False)
+            if rot_idx != rot_quant_indices[-1]:
+                nm_idxs = self._process_correspondences(info_dict["corres"][-1], rot_idx, False)
                 subset_mask = np.random.choice(np.arange(len(nm_idxs)), replace=False, size=(1 * num_non_matches // div_factor))
                 nm_idxs = nm_idxs[subset_mask]
                 non_matches.append(nm_idxs)
@@ -334,7 +287,7 @@ class CorrespondenceDataset(Dataset):
             # target: on the object
             # onlt this stratygy concern stateless or not    
             if self._stateless:
-                if rot_idx == curr_rot_idx:
+                if rot_idx == rot_quant_indices[-1]:
                     nm_idxs = sampling.non_matches_from_matches(
                         1 * num_non_matches // div_factor,
                         (self._H, self._W),
@@ -356,7 +309,7 @@ class CorrespondenceDataset(Dataset):
                     )
                     non_matches.append(nm_idxs)
             else:
-                if rot_idx in self._pre_rot_quant_indices:
+                if rot_idx in rot_quant_indices[:-1]:
                     non_matches.append(
                         sampling.non_matches_from_matches(
                             num_non_matches // div_factor,
@@ -400,38 +353,40 @@ class CorrespondenceDataset(Dataset):
             )
         )
 
-        # expand to proper dim
-        if not self._use_color:
-            assert c_height_s.ndim == 2
-            if self._num_channels == 2:
-                c_height_s = c_height_s[..., np.newaxis]
-                c_height_t = c_height_t[..., np.newaxis]
-            else:  # clone the gray channel 3 times
-                c_height_s = np.repeat(c_height_s[..., np.newaxis], 3, axis=-1)
-                c_height_t = np.repeat(c_height_t[..., np.newaxis], 3, axis=-1)
-        else:
-            assert c_height_s.ndim == 3 and c_height_s.shape[2] == 3
-        d_height_s = d_height_s[..., np.newaxis]
-        d_height_t = d_height_t[..., np.newaxis]
+        # # expand to proper dim meanless?
+        # if not self._use_color:
+        #     assert c_height_s.ndim == 2
+        #     if self._num_channels == 2:
+        #         c_height_s = c_height_s[..., np.newaxis]
+        #         c_height_t = c_height_t[..., np.newaxis]
+        #     else:  # clone the gray channel 3 times
+        #         c_height_s = np.repeat(c_height_s[..., np.newaxis], 3, axis=-1)
+        #         c_height_t = np.repeat(c_height_t[..., np.newaxis], 3, axis=-1)
+        # else:
+        #     assert c_height_s.ndim == 3 and c_height_s.shape[2] == 3
+        # d_height_s = d_height_s[..., np.newaxis]
+        # d_height_t = d_height_t[..., np.newaxis]
 
 
         # ndarray -> tensor
         label_tensor = torch.LongTensor(label)
 
         # heightmaps -> tensor
-        c_height_s = self._tensor_norm(c_height_s)
-        c_height_t = self._tensor_norm(c_height_t)
-        d_height_s = self._tensor_norm(d_height_s)
-        d_height_t = self._tensor_norm(d_height_t)
+
+        # c_height_s = self._tensor_norm(c_height_s)
+        # c_height_t = self._tensor_norm(c_height_t)
+        # d_height_s = self._tensor_norm(d_height_s)
+        # d_height_t = self._tensor_norm(d_height_t)
 
         # concatenate height and depth into a 4-channel tensor
-        source_img_tensor = torch.cat([c_height_s, d_height_s], dim=0)
-        target_img_tensor = torch.cat([c_height_t, d_height_t], dim=0)
+        source_img_tensor = torch.cat([info_dict["c_height_s"], info_dict["d_height_s"]], dim=0)
+        target_img_tensor = torch.cat([info_dict["c_height_t"], info_dict["d_height_t"]], dim=0)
 
         # concatenate source and target into a 8-channel tensor
         img_tensor = torch.cat([source_img_tensor, target_img_tensor], dim=0)
 
         kit_center = (kit_uc, kit_vc)
+        obj_center = info_dict["final_point"][-1]
         return img_tensor, label_tensor, kit_center, obj_center
 
 
