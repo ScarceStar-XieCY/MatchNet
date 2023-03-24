@@ -29,6 +29,7 @@ GT_ROT = "gt_rot"
 KIT_IDXS_ALL = "kit_idxs_all"
 OBJ_IDXS_ALL = "obj_idxs_all"
 COORD_NAMES = ["obj_uniform","obj_ccircle"]
+NUM_ROT = 20
 
 def get_circle_point(shape, uv_center, radius):
     """Get all point of one circle."""
@@ -81,12 +82,12 @@ def valid_one_data(dloader_output, model, device, num_subsample,debug, norm_info
     kit_idxs = source_idxs[mask]
     obj_idxs = target_idxs[mask]
 
-    if debug:
-        put_img_array_to_dict(norm_info,imgs,data_info_dict)
-        kit_idxs_all = kit_idxs.clone()
-        obj_idxs_all = obj_idxs.clone()
-        data_info_dict["kit_idxs_all"] =kit_idxs_all
-        data_info_dict["obj_idxs_all"] =obj_idxs_all
+    # if debug:
+    #     put_img_array_to_dict(norm_info,imgs,data_info_dict)
+    #     kit_idxs_all = kit_idxs.clone()
+    #     obj_idxs_all = obj_idxs.clone()
+    #     data_info_dict["kit_idxs_all"] =kit_idxs_all
+    #     data_info_dict["obj_idxs_all"] =obj_idxs_all
 
     if num_subsample is not None:
         kit_idxs = kit_idxs[::int(num_subsample)]
@@ -140,50 +141,73 @@ def valid_one_data(dloader_output, model, device, num_subsample,debug, norm_info
 
 def validation_correspondence(dloader,model,device, num_subsample=None,interval=1,debug=False):
     
-    color_mean = dloader.dataset.c_mean
-    color_std = dloader.dataset.c_std
-    depth_mean = dloader.dataset.d_mean
-    depth_std = dloader.dataset.d_std
-    norm_info = [color_mean,color_std,depth_mean,depth_std]
+    # color_mean = dloader.dataset.c_mean
+    # color_std = dloader.dataset.c_std
+    # depth_mean = dloader.dataset.d_mean
+    # depth_std = dloader.dataset.d_std
+    # norm_info = [color_mean,color_std,depth_mean,depth_std]
     model.eval()
-    prec_dict = {"acc":{},"ap":{}}
+    prec_dict = {}
+    for coord_name in COORD_NAMES:
+        prec_dict[coord_name] = {}
     for idx, dloader_output in enumerate(tqdm(dloader)):
         if idx % interval != 0:
             continue
-        data_info_dict = valid_one_data(dloader_output,model,device, num_subsample,debug, norm_info)
+        data_info_dict = valid_one_data(dloader_output,model,device, num_subsample,debug, norm_info={})
         correct_rot = data_info_dict[GT_ROT]
         for coord_name in COORD_NAMES:
-            if prec_dict["ap"].get(coord_name, None) is None:
-                prec_dict["ap"][coord_name] = []
-                prec_dict["acc"][coord_name] = 0
+            if prec_dict[coord_name].get("acc_one_obj", None) is None:
+                prec_dict[coord_name]["acc_one_obj"] = []
+                # prec_dict[coord_name]["ap"] = 0
+                prec_dict[coord_name]["pred_seq"] = []
+                prec_dict[coord_name] ["gt_seq"]= []
+
             
             pred_rotations = data_info_dict[PRED_ROTATIONS + "_" + coord_name]
             point_num = data_info_dict["point_num" + "_" + coord_name]
             pred_rotations_array = np.array(pred_rotations)
         
             # each obj hav one prec
-            tp_seq = np.array(pred_rotations_array == correct_rot)
-            tp = np.sum(tp_seq)
-            prec = tp / point_num
+            same_seq = np.array(pred_rotations_array == correct_rot)
+            same = np.sum(same_seq)
+            acc_one_obj = same / point_num #ratio if truely pred correct
             
             # compute rotation majority
-            best_rot = mode(pred_rotations,axis=None,keepdims=False)[0]
-            mode_num = np.sum(pred_rotations_array == best_rot)
+            pred_best_rot = mode(pred_rotations,axis=None,keepdims=False)[0]
+            mode_num = np.sum(pred_rotations_array == pred_best_rot)
             mode_ratio = mode_num / point_num
             # prec_list.append([idx, correct_rot, prec, mode_ratio])
             if debug:
-                prec_info = [idx,correct_rot == best_rot, correct_rot, best_rot, prec,mode_ratio]
+                prec_info = [idx,correct_rot == pred_best_rot, correct_rot, pred_best_rot, acc_one_obj,mode_ratio]
             else:
-                prec_info = prec
-            prec_dict["ap"][coord_name].append(prec_info)
-
-            if best_rot == correct_rot:
-                prec_dict["acc"][coord_name] += 1
+                prec_info = acc_one_obj
+            prec_dict[coord_name]["acc_one_obj"].append(prec_info) # acc of one obj
+            
+            prec_dict[coord_name]["pred_seq"].append(pred_best_rot) # acc of one obj
+            prec_dict[coord_name]["gt_seq"].append(correct_rot) # acc of one obj
+            
+            if pred_best_rot == correct_rot:
+                prec_dict[coord_name]["acc"] += 1
 
     for coord_name in COORD_NAMES:        
-        prec_dict["acc"][coord_name] = prec_dict["acc"][coord_name] * interval/ len(dloader)
-        prec_dict["ap"][coord_name] = np.mean(prec_dict["ap"][coord_name]) if not debug else prec_dict["ap"][coord_name]
-        # ap = np.mean(prec_list)
+        # prec_dict[coord_name]["acc"] = prec_dict[coord_name]["acc"]* interval/ len(dloader)
+        prec_dict[coord_name]["acc_one_obj"] = np.mean(prec_dict[coord_name]["acc_one_obj"]) if not debug else prec_dict[coord_name]["acc_one_obj"]
+
+    prec_dict[coord_name]["tp_seq"] = {}
+    prec_dict[coord_name]["fp_seq"] = {}
+    prec_dict[coord_name]["fn_seq"] = {}
+    prec_dict[coord_name]["angle_p"] = []
+    prec_dict[coord_name]["angle_r"] = []
+    for i in range(NUM_ROT):
+        prec_dict[coord_name]["tp_seq"][i] = np.array(prec_dict[coord_name]["pred_seq"]) == i  & np.array(prec_dict[coord_name]["gt_seq"]) == i
+        prec_dict[coord_name]["fp_seq"][i] = np.array(prec_dict[coord_name]["pred_seq"]) == i  & np.array(prec_dict[coord_name]["gt_seq"]) != i
+        prec_dict[coord_name]["fn_seq"][i] = np.array(prec_dict[coord_name]["pred_seq"]) != i  & np.array(prec_dict[coord_name]["gt_seq"]) == i
+    for i in range(NUM_ROT):
+        prec_dict[coord_name]["angle_p"].append(prec_dict[coord_name]["tp_seq"][i] / (prec_dict[coord_name]["tp_seq"][i] + prec_dict[coord_name]["fp_seq"][i]))
+        prec_dict[coord_name]["angle_r"].append(prec_dict[coord_name]["tp_seq"][i] / (prec_dict[coord_name]["tp_seq"][i] + prec_dict[coord_name]["fn_seq"][i]))
+    prec_dict[coord_name]["angle_p_mean"] = np.mean(prec_dict[coord_name]["angle_p"])
+    prec_dict[coord_name]["angle_r_mean"] = np.mean(prec_dict[coord_name]["angle_r"])
+    # ap = np.mean(prec_list)
     return prec_dict
 
 
@@ -312,19 +336,19 @@ def main(args):
         
 
     #     # compute rotation majority
-    #     best_rot = mode(rotations,axis=None,keepdims=False)[0]
-    #     if best_rot == correct_rot.item():
+    #     pred_best_rot = mode(rotations,axis=None,keepdims=False)[0]
+    #     if pred_best_rot == correct_rot.item():
     #         correct += 1
 
     #     # eliminate correspondences with rotation different than mode
-    #     select_idxs = np.array(rotations) == best_rot
+    #     select_idxs = np.array(rotations) == pred_best_rot
     #     predicted_kit_uvs = np.array(predicted_kit_uvs)[select_idxs]
     #     obj_uvs = np.array(obj_uvs)[select_idxs]
 
     #     # use predicted correspondences to estimate affine transformation
     #     src_pts = np.array(obj_uvs)[:, [1, 0]]
     #     dst_pts = np.array(predicted_kit_uvs)
-    #     dst_pts = misc.rotate_uv(dst_pts, (360/20)*best_rot, H, W, cxcy=center[0])[:, [1, 0]]
+    #     dst_pts = misc.rotate_uv(dst_pts, (360/20)*pred_best_rot, H, W, cxcy=center[0])[:, [1, 0]]
 
     #     # compose transform
     #     zs = depth_obj[src_pts[:, 1], src_pts[:, 0]].reshape(-1, 1)
@@ -342,7 +366,7 @@ def main(args):
     #     m2 = np.eye(4)
     #     m2[:3, 3] = -np.mean(dst_xyz, axis=0)
     #     m3 = np.eye(4)
-    #     m3[:3, :3] = gen_rot_mtx_anticlockwise(np.radians(-(360/20)*best_rot))
+    #     m3[:3, :3] = gen_rot_mtx_anticlockwise(np.radians(-(360/20)*pred_best_rot))
     #     m4 = np.eye(4)
     #     m4[:3, 3] = np.mean(dst_xyz, axis=0)
     #     estimated_pose = m4 @ m3 @ m2 @ m1

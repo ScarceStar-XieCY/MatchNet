@@ -24,8 +24,9 @@ warnings.filterwarnings("ignore")
 from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
 import logging
-  
-EXP_NAME="mix_1_32"
+
+DATASET_NAME = "datasets_mix0128"
+EXP_NAME="mix_1"
 SEED=666
 tb_path = './tb_log_corres_' + EXP_NAME
 if not os.path.exists(tb_path):
@@ -62,6 +63,11 @@ def set_seed(set_benchmark:bool):
     else:
         torch.backends.cudnn.deterministic = True
 
+def add_metric(writer,pred_dict, metric_list,data_type):
+    for coord_name in COORD_NAMES:        
+        for metric_name in metric_list:
+            writer.add_scalar(f"{data_type}/{metric_name}_{coord_name}", pred_dict[coord_name][metric_name], global_step=epoch, walltime=None)
+
 # python form2fit/code/train_correspondence.py 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Form2Fit suction Module")
@@ -82,7 +88,7 @@ if __name__ == "__main__":
 
     batch_size = opt.batchsize
     epochs = opt.epochs
-    dataset_name = "../datasets_bear"
+    dataset_name = "../" +DATASET_NAME
     savepath = opt.savepath
     background_subtract = opt.background_subtract
     use_color = True
@@ -118,7 +124,7 @@ if __name__ == "__main__":
     # optimizer = torch.optim.Adam(model.parameters(),lr=5e-2) # 1e-3
     optimizer = torch.optim.Adam(model.parameters(),lr=1e-3,betas=[0.9,0.999],weight_decay=3e-6) # 1e-3
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, last_epoch=-1)
-    scheduler = StepLR(optimizer, step_size=150, gamma=0.1) # gamma=0.1
+    scheduler = StepLR(optimizer, step_size=150, gamma=0.3) # gamma=0.1
     start_epoch = -1
     if opt.resume:
         state_dict = torch.load(opt.checkpoint, map_location=device)
@@ -170,19 +176,15 @@ if __name__ == "__main__":
         writer.add_scalar("loss/epoch", np.mean(train_epoch_loss), global_step=epoch, walltime=None)
 
         train_pred_dict = validation_correspondence(train_loader, model, device, 16, 10)
-        writer.add_scalar("train_metric/rot_ap_uniform", train_pred_dict["ap"][COORD_NAMES[0]], global_step=epoch, walltime=None)
-        writer.add_scalar("train_metric/rot_acc_uniform", train_pred_dict["acc"][COORD_NAMES[0]], global_step=epoch, walltime=None)
-        writer.add_scalar("train_metric/rot_ap_ccircle", train_pred_dict["ap"][COORD_NAMES[1]], global_step=epoch, walltime=None)
-        writer.add_scalar("train_metric/rot_acc_ccircle", train_pred_dict["acc"][COORD_NAMES[1]], global_step=epoch, walltime=None)
-
+        add_metric(writer, train_pred_dict, ["angle_p_mean","angle_r_mean","acc_one_obj"], "train")
 
         valid_pred_dict = validation_correspondence(valid_loader, model, device, 16)
-        writer.add_scalar("valid_metric/rot_ap_uniform", valid_pred_dict["ap"][COORD_NAMES[0]], global_step=epoch, walltime=None)
-        writer.add_scalar("valid_metric/rot_acc_uniform", valid_pred_dict["acc"][COORD_NAMES[0]], global_step=epoch, walltime=None)
-        writer.add_scalar("valid_metric/rot_ap_ccircle", valid_pred_dict["ap"][COORD_NAMES[1]], global_step=epoch, walltime=None)
-        writer.add_scalar("valid_metric/rot_acc_ccircle", valid_pred_dict["acc"][COORD_NAMES[1]], global_step=epoch, walltime=None)
+        add_metric(writer, train_pred_dict, ["angle_p_mean","angle_r_mean","acc_one_obj"], "valid")
 
-        save_ckpt(savepath,"corrs",epoch, model,optimizer,scheduler, train_pred_dict["acc"][COORD_NAMES[1]])
+
+        save_ckpt(savepath,"corrs",epoch, model,optimizer,scheduler, valid_pred_dict[COORD_NAMES[1]]["angle_p_mean"])
         # save_ckpt(savepath,"corrs",epoch, model,optimizer,None)
         scheduler.step()
     writer.close()
+
+
